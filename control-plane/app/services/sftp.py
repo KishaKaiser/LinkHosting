@@ -29,14 +29,24 @@ def verify_password(password: str, hashed: str) -> bool:
     return pwd_context.verify(password, hashed)
 
 
+def sftp_username(site_name: str) -> str:
+    """Return the SFTP username for a site — deterministic, no secrets."""
+    return f"sftp-{site_name}"
+
+
+def sftp_home_dir(site_name: str) -> str:
+    """Return the SFTP home directory for a site — deterministic, no secrets."""
+    return str(SFTP_BASE / site_name)
+
+
 def provision_sftp_account(site_name: str) -> tuple[str, str, str]:
     """
     Create an SFTP account for a site.
     Returns (username, plain_password, home_dir).
     """
-    username = f"sftp-{site_name}"
+    username = sftp_username(site_name)
+    home_dir = sftp_home_dir(site_name)
     password = _random_password()
-    home_dir = str(SFTP_BASE / site_name)
 
     if settings.dev_mode:
         log.info("[DEV] Would create SFTP account %s -> %s", username, home_dir)

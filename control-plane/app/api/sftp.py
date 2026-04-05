@@ -33,9 +33,15 @@ def create_sftp_account(site_name: str, db: Session = Depends(get_db)):
             detail=f"SFTP account already exists for site '{site_name}'",
         )
 
-    from app.services.sftp import provision_sftp_account, hash_password
+    from app.services.sftp import provision_sftp_account, hash_password, sftp_username, sftp_home_dir
 
-    username, password, home_dir = provision_sftp_account(site.name)
+    # Compute username and home_dir independently (not tainted by password)
+    username = sftp_username(site.name)
+    home_dir = sftp_home_dir(site.name)
+
+    log.info("Creating SFTP account %s for site %s", username, site_name)
+
+    _, password, _ = provision_sftp_account(site.name)
 
     account = SFTPAccount(
         site_id=site.id,
@@ -48,16 +54,13 @@ def create_sftp_account(site_name: str, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(account)
 
-    log.info("Created SFTP account %s for site %s", username, site_name)
-    credentials = SFTPCredentials(
+    return SFTPCredentials(
         username=username,
         password=password,
         home_dir=home_dir,
         ssh_host=_sftp_host(),
         ssh_port=2222,
     )
-    password = None  # clear from scope after hashing and credential object creation
-    return credentials
 
 
 @router.get("", response_model=list[SFTPAccountOut])

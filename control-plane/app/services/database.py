@@ -99,6 +99,12 @@ def drop_postgres_db(db_name: str, db_user: str) -> None:
         conn.close()
 
 
+def db_identifiers(site_name: str) -> tuple[str, str]:
+    """Return (db_name, db_user) for a site — deterministic, no secrets."""
+    safe = site_name.replace("-", "_")
+    return f"site_{safe}", f"user_{safe}"
+
+
 def provision_database(
     site_name: str,
     engine: DatabaseEngine = DatabaseEngine.postgres,
@@ -107,8 +113,7 @@ def provision_database(
     Create a database for the given site.
     Returns (db_name, db_user, password, host, port).
     """
-    db_name = f"site_{site_name.replace('-', '_')}"
-    db_user = f"user_{site_name.replace('-', '_')}"
+    db_name, db_user = db_identifiers(site_name)
     password = _random_password()
 
     if engine == DatabaseEngine.postgres:

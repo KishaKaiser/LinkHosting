@@ -36,9 +36,16 @@ def create_database(
             detail=f"A {payload.engine} database already exists for site '{site_name}'",
         )
 
-    from app.services.database import provision_database
+    from app.services.database import provision_database, db_identifiers
 
-    db_name, db_user, password, host, port = provision_database(site.name, payload.engine)
+    # Compute identifiers independently (not tainted by password)
+    db_name, db_user = db_identifiers(site.name)
+    host = "db-pg" if payload.engine == DatabaseEngine.postgres else "db-mysql"
+    port = 5432 if payload.engine == DatabaseEngine.postgres else 3306
+
+    log.info("Creating database %s for site %s", db_name, site_name)
+
+    _, _, password, host, port = provision_database(site.name, payload.engine)
 
     pw_hash = pwd_context.hash(password)
     site_db = SiteDatabase(
@@ -53,8 +60,6 @@ def create_database(
     db.add(site_db)
     db.commit()
     db.refresh(site_db)
-
-    log.info("Created database %s for site %s", db_name, site_name)
 
     if payload.engine == DatabaseEngine.postgres:
         dsn = f"postgresql://{db_user}:{password}@{host}:{port}/{db_name}"
