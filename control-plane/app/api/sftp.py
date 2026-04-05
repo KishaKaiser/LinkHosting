@@ -49,13 +49,15 @@ def create_sftp_account(site_name: str, db: Session = Depends(get_db)):
     db.refresh(account)
 
     log.info("Created SFTP account %s for site %s", username, site_name)
-    return SFTPCredentials(
+    credentials = SFTPCredentials(
         username=username,
         password=password,
         home_dir=home_dir,
         ssh_host=_sftp_host(),
         ssh_port=2222,
     )
+    password = None  # clear from scope after hashing and credential object creation
+    return credentials
 
 
 @router.get("", response_model=list[SFTPAccountOut])

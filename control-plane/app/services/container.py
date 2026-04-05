@@ -80,10 +80,6 @@ def provision_container(site: Site) -> str:
     labels = {
         "linkhosting.site": site.name,
         "linkhosting.domain": site.domain,
-        f"traefik.enable": "true",
-        f"traefik.http.routers.{site.name}.rule": f"Host(`{site.domain}`)",
-        f"traefik.http.routers.{site.name}-tls.rule": f"Host(`{site.domain}`)",
-        f"traefik.http.routers.{site.name}-tls.tls": "true",
     }
 
     # Write a placeholder index page if none exists

@@ -38,6 +38,7 @@ def create_postgres_db(db_name: str, db_user: str, password: str) -> None:
         return
 
     import psycopg2
+    from psycopg2 import sql
     from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
     conn = _pg_connection()
@@ -50,7 +51,9 @@ def create_postgres_db(db_name: str, db_user: str, password: str) -> None:
         )
         if not cur.fetchone():
             cur.execute(
-                f"CREATE USER {psycopg2.extensions.quote_ident(db_user, cur)} WITH PASSWORD %s",
+                sql.SQL("CREATE USER {} WITH PASSWORD %s").format(
+                    sql.Identifier(db_user)
+                ),
                 (password,),
             )
         # Create database owned by user
@@ -59,8 +62,10 @@ def create_postgres_db(db_name: str, db_user: str, password: str) -> None:
         )
         if not cur.fetchone():
             cur.execute(
-                f"CREATE DATABASE {psycopg2.extensions.quote_ident(db_name, cur)} "
-                f"OWNER {psycopg2.extensions.quote_ident(db_user, cur)}"
+                sql.SQL("CREATE DATABASE {} OWNER {}").format(
+                    sql.Identifier(db_name),
+                    sql.Identifier(db_user),
+                )
             )
         log.info("Created postgres db=%s user=%s", db_name, db_user)
     finally:
@@ -75,6 +80,7 @@ def drop_postgres_db(db_name: str, db_user: str) -> None:
         return
 
     import psycopg2
+    from psycopg2 import sql
     from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
     conn = _pg_connection()
@@ -82,10 +88,10 @@ def drop_postgres_db(db_name: str, db_user: str) -> None:
     cur = conn.cursor()
     try:
         cur.execute(
-            f"DROP DATABASE IF EXISTS {psycopg2.extensions.quote_ident(db_name, cur)}"
+            sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(db_name))
         )
         cur.execute(
-            f"DROP ROLE IF EXISTS {psycopg2.extensions.quote_ident(db_user, cur)}"
+            sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(db_user))
         )
         log.info("Dropped postgres db=%s user=%s", db_name, db_user)
     finally:

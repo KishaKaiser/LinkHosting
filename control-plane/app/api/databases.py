@@ -54,12 +54,13 @@ def create_database(
     db.commit()
     db.refresh(site_db)
 
+    log.info("Created database %s for site %s", db_name, site_name)
+
     if payload.engine == DatabaseEngine.postgres:
         dsn = f"postgresql://{db_user}:{password}@{host}:{port}/{db_name}"
     else:
         dsn = f"mysql://{db_user}:{password}@{host}:{port}/{db_name}"
 
-    log.info("Created database %s for site %s", db_name, site_name)
     return DatabaseCredentials(
         db_name=db_name,
         db_user=db_user,

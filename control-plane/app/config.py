@@ -15,7 +15,6 @@ class Settings(BaseSettings):
     sftp_base_dir: str = "/data/sftp"
 
     # Internal CA
-    ca_url: str = "http://ca:9000"
     ca_root_cert: str = "/data/certs/ca/root.crt"
 
     # Proxy
