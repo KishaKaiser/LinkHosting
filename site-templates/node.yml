@@ -1,0 +1,25 @@
+---
+# Node.js site template
+# Variables: SITE_NAME, SITE_DOMAIN, NETWORK, NODE_VERSION (default 20), PORT (default 3000)
+services:
+  site-{{ SITE_NAME }}:
+    image: node:{{ NODE_VERSION | default('20') }}-alpine
+    container_name: site-{{ SITE_NAME }}
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "server.js"]
+    volumes:
+      - /data/sites/{{ SITE_NAME }}:/app:rw
+      - /data/certs/{{ SITE_NAME }}:/certs:ro
+    environment:
+      PORT: "{{ PORT | default('3000') }}"
+      NODE_ENV: production
+    networks:
+      - {{ NETWORK }}
+    labels:
+      linkhosting.site: "{{ SITE_NAME }}"
+      linkhosting.domain: "{{ SITE_DOMAIN }}"
+
+networks:
+  {{ NETWORK }}:
+    external: true

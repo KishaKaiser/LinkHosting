@@ -1,0 +1,20 @@
+---
+# Static site template
+# Variables: SITE_NAME, SITE_DOMAIN, NETWORK
+services:
+  site-{{ SITE_NAME }}:
+    image: nginx:alpine
+    container_name: site-{{ SITE_NAME }}
+    restart: unless-stopped
+    volumes:
+      - /data/sites/{{ SITE_NAME }}:/usr/share/nginx/html:ro
+      - /data/certs/{{ SITE_NAME }}:/certs:ro
+    networks:
+      - {{ NETWORK }}
+    labels:
+      linkhosting.site: "{{ SITE_NAME }}"
+      linkhosting.domain: "{{ SITE_DOMAIN }}"
+
+networks:
+  {{ NETWORK }}:
+    external: true

@@ -1,0 +1,36 @@
+---
+# Reverse-proxy site template (nginx upstream)
+# Variables: SITE_NAME, SITE_DOMAIN, NETWORK, UPSTREAM_URL
+services:
+  site-{{ SITE_NAME }}:
+    image: nginx:alpine
+    container_name: site-{{ SITE_NAME }}
+    restart: unless-stopped
+    volumes:
+      - /data/certs/{{ SITE_NAME }}:/certs:ro
+    environment:
+      UPSTREAM_URL: "{{ UPSTREAM_URL }}"
+    networks:
+      - {{ NETWORK }}
+    labels:
+      linkhosting.site: "{{ SITE_NAME }}"
+      linkhosting.domain: "{{ SITE_DOMAIN }}"
+    configs:
+      - source: proxy_conf_{{ SITE_NAME }}
+        target: /etc/nginx/conf.d/proxy.conf
+
+configs:
+  proxy_conf_{{ SITE_NAME }}:
+    content: |
+      server {
+        listen 80;
+        location / {
+          proxy_pass {{ UPSTREAM_URL }};
+          proxy_set_header Host $$host;
+          proxy_set_header X-Real-IP $$remote_addr;
+        }
+      }
+
+networks:
+  {{ NETWORK }}:
+    external: true
