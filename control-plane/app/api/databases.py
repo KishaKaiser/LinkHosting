@@ -5,12 +5,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
+from app.auth import require_bearer_token
 from app.database import get_db
 from app.models import DatabaseEngine, Site, SiteDatabase
 from app.schemas import DatabaseCreate, DatabaseCredentials, DatabaseOut
 
 log = logging.getLogger(__name__)
-router = APIRouter(prefix="/sites/{site_name}/database", tags=["databases"])
+router = APIRouter(
+    prefix="/sites/{site_name}/database",
+    tags=["databases"],
+    dependencies=[Depends(require_bearer_token)],
+)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

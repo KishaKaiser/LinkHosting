@@ -5,13 +5,18 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.auth import require_bearer_token
 from app.database import get_db
 from app.models import Certificate, Site
 from app.schemas import CertOut
 from app.config import settings
 
 log = logging.getLogger(__name__)
-router = APIRouter(prefix="/sites/{site_name}/cert", tags=["certificates"])
+router = APIRouter(
+    prefix="/sites/{site_name}/cert",
+    tags=["certificates"],
+    dependencies=[Depends(require_bearer_token)],
+)
 
 
 @router.post("", response_model=CertOut, status_code=201)

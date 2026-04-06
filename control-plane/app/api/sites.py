@@ -7,13 +7,18 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.auth import require_bearer_token
 from app.database import get_db
 from app.models import Site, SiteStatus, SiteType
 from app.schemas import GitHubImport, SiteCreate, SiteOut, SiteUpdate
 from app.config import settings
 
 log = logging.getLogger(__name__)
-router = APIRouter(prefix="/sites", tags=["sites"])
+router = APIRouter(
+    prefix="/sites",
+    tags=["sites"],
+    dependencies=[Depends(require_bearer_token)],
+)
 
 
 def _auto_domain(name: str) -> str:
