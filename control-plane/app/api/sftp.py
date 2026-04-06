@@ -5,12 +5,17 @@ import socket
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.auth import require_bearer_token
 from app.database import get_db
 from app.models import Site, SFTPAccount
 from app.schemas import SFTPAccountOut, SFTPCredentials
 
 log = logging.getLogger(__name__)
-router = APIRouter(prefix="/sites/{site_name}/sftp", tags=["sftp"])
+router = APIRouter(
+    prefix="/sites/{site_name}/sftp",
+    tags=["sftp"],
+    dependencies=[Depends(require_bearer_token)],
+)
 
 
 def _sftp_host() -> str:
