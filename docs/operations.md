@@ -69,8 +69,8 @@ LinkHosting does not manage DNS — you must add DNS records pointing each site'
 sudo apt-get install -y dnsmasq
 
 # Add to /etc/dnsmasq.conf:
-# address=/.link/192.168.1.100
-# (Replace 192.168.1.100 with your host's LAN IP)
+# address=/.link/192.168.4.32
+# (Host fixed IP is 192.168.4.32)
 sudo systemctl restart dnsmasq
 ```
 
@@ -85,8 +85,8 @@ Add custom DNS records via the Pi-hole admin panel:
 On each client machine, add to `/etc/hosts` (Linux/Mac) or `C:\Windows\System32\drivers\etc\hosts` (Windows):
 
 ```
-192.168.1.100  mysite.link
-192.168.1.100  myapp.link
+192.168.4.32  mysite.link
+192.168.4.32  myapp.link
 ```
 
 ---
@@ -99,7 +99,7 @@ On each client machine, add to `/etc/hosts` (Linux/Mac) or `C:\Windows\System32\
 ./scripts/create-site.sh mysite static
 ./scripts/create-site.sh myapp node
 ./scripts/create-site.sh myapi python --domain myapi.link
-./scripts/create-site.sh myproxy proxy --upstream http://192.168.1.50:3000
+./scripts/create-site.sh myproxy proxy --upstream http://192.168.4.50:3000
 ```
 
 ### Import a GitHub repository
@@ -230,7 +230,7 @@ sudo ufw allow 80/tcp     # HTTP
 sudo ufw allow 443/tcp    # HTTPS
 sudo ufw allow 2222/tcp   # SFTP
 # Block control-plane API from general LAN — admin only
-sudo ufw allow from 192.168.1.10 to any port 8000  # Admin host only
+sudo ufw allow from 192.168.4.0/24 to any port 8000  # LAN only — tighten to admin host if needed
 sudo ufw enable
 ```
 

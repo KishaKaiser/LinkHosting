@@ -5,7 +5,7 @@
 # Types: static | php | node | python | proxy
 # Example:
 #   ./scripts/create-site.sh myapp node
-#   ./scripts/create-site.sh myproxy proxy --upstream http://192.168.1.50:3000
+#   ./scripts/create-site.sh myproxy proxy --upstream http://192.168.4.50:3000
 
 set -euo pipefail
 

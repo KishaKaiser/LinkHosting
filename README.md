@@ -78,7 +78,7 @@ curl http://localhost:8000/health   # → {"status":"ok"}
 Add an A record pointing `mysite.link` to your host's LAN IP, or add to `/etc/hosts`:
 
 ```
-192.168.1.100  mysite.link
+192.168.4.32  mysite.link
 ```
 
 ### 6. Trust the CA

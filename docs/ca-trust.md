@@ -10,8 +10,8 @@ curl http://<host-ip>:8000/ca.crt -o linkhosting-ca.crt
 
 Or via script:
 ```bash
-LINKHOSTING_API=http://192.168.1.100:8000 \
-  curl http://192.168.1.100:8000/ca.crt -o linkhosting-ca.crt
+LINKHOSTING_API=http://192.168.4.32:8000 \
+  curl http://192.168.4.32:8000/ca.crt -o linkhosting-ca.crt
 ```
 
 ---
