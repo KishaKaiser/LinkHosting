@@ -22,18 +22,59 @@ Provision and manage multiple isolated websites on a single server — each reac
 
 ---
 
-## Quick Start (Ubuntu 24.04)
+## Quick Install (one command)
+
+Clone the repo, then run the bootstrap installer for your platform.
+
+**macOS / Linux**
+
+```bash
+git clone https://github.com/KishaKaiser/LinkHosting.git && cd LinkHosting
+bash scripts/install.sh
+```
+
+Or, if you prefer a fully non-interactive install with all defaults accepted:
+
+```bash
+bash scripts/install.sh --non-interactive
+```
+
+To also register LinkHosting as a **systemd service** that auto-starts on boot (Linux):
+
+```bash
+bash scripts/install.sh --service
+```
+
+**Windows (PowerShell — run as Administrator)**
+
+```powershell
+git clone https://github.com/KishaKaiser/LinkHosting.git; cd LinkHosting
+.\scripts\install.ps1
+```
+
+Non-interactive / silent install:
+
+```powershell
+.\scripts\install.ps1 -NonInteractive
+```
+
+The installer will:
+1. Check prerequisites (Docker, docker compose, OpenSSL, curl, git)
+2. Copy `.env.example` → `.env` and generate strong random secrets
+3. Prompt for optional settings (domain suffix, bind address, SFTP port)
+4. Start the Docker Compose stack (`docker compose up -d --build`)
+5. Wait for the API health check and print a post-install summary
+
+---
+
+## Quick Start (manual)
 
 ### 1. Prerequisites
 
 ```bash
-# Install Docker
+# Install Docker (Ubuntu 24.04)
 sudo apt-get update && sudo apt-get install -y docker-ce docker-compose-plugin
 sudo usermod -aG docker $USER && newgrp docker
-
-# Create data directories
-sudo mkdir -p /data/sites /data/certs/ca /data/sftp /data/proxy/conf.d
-sudo chown -R $USER:$USER /data
 ```
 
 ### 2. Configure
