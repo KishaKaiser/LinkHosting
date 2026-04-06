@@ -41,7 +41,7 @@ if ($Help) {
 Write-Host ""
 Write-Host "  _     _       _    _   _           _   _            " -ForegroundColor Cyan
 Write-Host " | |   (_)_ __ | | _| | | | ___  ___| |_(_)_ __   __ _ " -ForegroundColor Cyan
-Write-Host " | |   | | '_ \| |/ / |_| |/ _ \/ __| __| | '_ \ / _' |" -ForegroundColor Cyan
+Write-Host " | |   | | '_ \| |/ / |_| |/ _ \/ __| __| | '_ \ / _` |" -ForegroundColor Cyan
 Write-Host " | |___| | | | |   <|  _  | (_) \__ \ |_| | | | | (_| |" -ForegroundColor Cyan
 Write-Host " |_____|_|_| |_|_|\_\_| |_|\___/|___/\__|_|_| |_|\__, |" -ForegroundColor Cyan
 Write-Host "                                                   |___/ " -ForegroundColor Cyan
@@ -70,13 +70,16 @@ function Get-RandomHex {
 function Set-EnvValue {
     param([string]$Key, [string]$Value, [string]$EnvFile)
     $content = Get-Content $EnvFile -Raw
+    if ([string]::IsNullOrEmpty($content)) { $content = '' }
+    # Ensure content ends with a newline so appended lines are on their own line
+    if ($content -and -not $content.EndsWith("`n")) { $content += "`n" }
     $pattern = "(?m)^${Key}=.*"
     if ($content -match $pattern) {
         $content = $content -replace $pattern, "${Key}=${Value}"
     } else {
-        $content += "`n${Key}=${Value}"
+        $content += "${Key}=${Value}`n"
     }
-    Set-Content -Path $EnvFile -Value $content -NoNewline
+    [System.IO.File]::WriteAllText($EnvFile, $content)
 }
 
 # ── Locate repo root ──────────────────────────────────────────────────────────
@@ -103,14 +106,13 @@ if ($null -eq $dockerCmd) {
     Write-Miss "Docker not found.  Install Docker Desktop from https://docs.docker.com/desktop/windows/"
     $prereqOk = $false
 } else {
-    Write-Ok "Docker → $($dockerCmd.Source)"
+    Write-Ok "Docker -> $($dockerCmd.Source)"
     # Check the daemon is running
-    try {
-        docker info 2>&1 | Out-Null
-        Write-Ok "Docker daemon is running"
-    } catch {
+    docker info 2>&1 | Out-Null
+    if (-not $?) {
         Write-Fail "Docker daemon is not running.  Start Docker Desktop and re-run."
     }
+    Write-Ok "Docker daemon is running"
 }
 
 # docker compose (v2 plugin preferred; fall back to standalone)

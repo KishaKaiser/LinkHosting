@@ -125,20 +125,18 @@ elif ! docker info &>/dev/null 2>&1; then
 fi
 
 # docker compose (v2 plugin preferred; fall back to standalone)
+# DOCKER_COMPOSE is an array so it can be safely expanded as "${DOCKER_COMPOSE[@]}"
 if docker compose version &>/dev/null 2>&1; then
   ok "docker compose (plugin v2)"
+  DOCKER_COMPOSE=(docker compose)
 elif command -v docker-compose &>/dev/null; then
   ok "docker-compose (standalone)"
-  # Transparent shim so the rest of the script uses 'docker compose'
-  docker() {
-    if [[ "$1" == "compose" ]]; then shift; command docker-compose "$@"
-    else command docker "$@"; fi
-  }
-  export -f docker
+  DOCKER_COMPOSE=(docker-compose)
 else
   echo -e "${RED}[MISS]${RESET}  docker compose not found." \
     " Install the Compose plugin: https://docs.docker.com/compose/install/" >&2
   PREREQ_OK=false
+  DOCKER_COMPOSE=(docker compose)   # placeholder so -u doesn't error later
 fi
 
 # openssl — required for secret generation
@@ -202,7 +200,7 @@ if [[ "$INSTALL_SERVICE" == "true" ]]; then
     warn "systemctl not found — skipping service installation."
   else
     SERVICE_FILE="/etc/systemd/system/linkhosting.service"
-    info "Installing systemd service → $SERVICE_FILE"
+    info "Installing systemd service -> $SERVICE_FILE"
     sudo tee "$SERVICE_FILE" >/dev/null <<UNIT
 [Unit]
 Description=LinkHosting Docker Compose Stack
@@ -229,8 +227,8 @@ fi
 # ── Start the stack ───────────────────────────────────────────────────────────
 echo ""
 echo "────────────────────────────────────────────────────────────────"
-info "Starting LinkHosting stack (first run may take a few minutes)…"
-docker compose up -d --build
+info "Starting LinkHosting stack (first run may take a few minutes)..."
+"${DOCKER_COMPOSE[@]}" up -d --build
 
 # ── Health check ─────────────────────────────────────────────────────────────
 BIND_ADDR="${CONTROL_PLANE_PORT:-127.0.0.1:8000}"
@@ -258,15 +256,15 @@ echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━�
 echo -e "${BOLD}  LinkHosting installed successfully!${RESET}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 echo ""
-echo -e "  API / Swagger UI  →  ${CYAN}http://${HEALTH_HOST}:${HEALTH_PORT}/docs${RESET}"
-echo -e "  Health endpoint   →  ${CYAN}http://${HEALTH_HOST}:${HEALTH_PORT}/health${RESET}"
+echo -e "  API / Swagger UI  ->  ${CYAN}http://${HEALTH_HOST}:${HEALTH_PORT}/docs${RESET}"
+echo -e "  Health endpoint   ->  ${CYAN}http://${HEALTH_HOST}:${HEALTH_PORT}/health${RESET}"
 echo ""
 echo -e "  ${BOLD}Secrets saved to:${RESET} ${REPO_ROOT}/.env"
 echo -e "  ${YELLOW}⚠  Keep .env private — it contains database passwords and API keys.${RESET}"
 echo ""
 echo -e "  ${BOLD}Next steps:${RESET}"
-echo -e "  1. Create a site  →  ${CYAN}./scripts/create-site.sh mysite static${RESET}"
-echo -e "  2. Deploy it      →  ${CYAN}./scripts/deploy-site.sh mysite${RESET}"
-echo -e "  3. Issue TLS cert →  ${CYAN}./scripts/create-cert.sh mysite${RESET}"
+echo -e "  1. Create a site  ->  ${CYAN}./scripts/create-site.sh mysite static${RESET}"
+echo -e "  2. Deploy it      ->  ${CYAN}./scripts/deploy-site.sh mysite${RESET}"
+echo -e "  3. Issue TLS cert ->  ${CYAN}./scripts/create-cert.sh mysite${RESET}"
 echo ""
 echo "────────────────────────────────────────────────────────────────"
