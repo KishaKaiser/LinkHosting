@@ -1,0 +1,25 @@
+---
+# Development override — runs control-plane in dev mode (no Docker/root needed)
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+services:
+  control-plane:
+    environment:
+      DEV_MODE: "true"
+      DATABASE_URL: "postgresql://${DB_USER:-linkhosting}:${DB_PASSWORD:-devpassword}@db:5432/${DB_NAME:-linkhosting}"
+      ADMIN_SECRET_KEY: "dev-secret-key"
+    ports:
+      - "8000:8000"
+
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
+
+  db-pg:
+    environment:
+      POSTGRES_PASSWORD: ${SITE_DB_PASSWORD:-devpassword}
+
+  # In dev mode the proxy just serves a stub page
+  proxy:
+    volumes:
+      - ./proxy/conf.d:/etc/nginx/conf.d:ro

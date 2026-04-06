@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+secrets/
+
+# Docker
+docker-compose.override.yml
+
+# Data volumes (not committed)
+data/sites/
+data/certs/
+data/sftp/
+data/postgres/
+data/ca/
+
+# Logs
+*.log
+logs/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test artifacts
+*.db
+test.db
+test_services.db
+
