@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     admin_token_expire_minutes: int = 60
 
     # Site domain suffix
-    domain_suffix: str = "local"
+    domain_suffix: str = "link"
 
     # Dev mode (skip real Docker/system calls)
     dev_mode: bool = False

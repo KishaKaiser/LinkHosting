@@ -1,14 +1,15 @@
 """Sites API router."""
 import json
 import logging
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Site, SiteStatus
-from app.schemas import SiteCreate, SiteOut, SiteUpdate
+from app.models import Site, SiteStatus, SiteType
+from app.schemas import GitHubImport, SiteCreate, SiteOut, SiteUpdate
 from app.config import settings
 
 log = logging.getLogger(__name__)
@@ -37,6 +38,35 @@ def create_site(payload: SiteCreate, db: Session = Depends(get_db)):
             detail=f"Site '{payload.name}' or domain '{domain}' already exists",
         )
 
+    # Determine site type — auto-detect from GitHub repo if not specified
+    site_type = payload.site_type
+    git_repo = payload.github_repo
+    git_branch = payload.github_branch
+
+    if git_repo:
+        from app.services.github import clone_repo, detect_site_type, _validate_github_url
+        try:
+            git_repo = _validate_github_url(git_repo)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        site_dir = Path(settings.sites_base_dir) / payload.name
+        try:
+            clone_repo(git_repo, site_dir, branch=git_branch)
+        except Exception as exc:
+            log.exception("GitHub clone failed for site %s", payload.name)
+            raise HTTPException(status_code=422, detail=f"GitHub clone failed: {exc}") from exc
+
+        if site_type is None:
+            site_type = detect_site_type(site_dir)
+            log.info("Auto-detected site type %s for %s", site_type, payload.name)
+
+    if site_type is None:
+        raise HTTPException(
+            status_code=422,
+            detail="site_type is required when github_repo is not provided",
+        )
+
     env_json: Optional[str] = None
     if payload.env_vars:
         env_json = json.dumps(payload.env_vars)
@@ -44,11 +74,13 @@ def create_site(payload: SiteCreate, db: Session = Depends(get_db)):
     site = Site(
         name=payload.name,
         domain=domain,
-        site_type=payload.site_type,
+        site_type=site_type,
         status=SiteStatus.pending,
         image=payload.image,
         upstream_url=payload.upstream_url,
         env_vars=env_json,
+        git_repo=git_repo,
+        git_branch=git_branch,
     )
     db.add(site)
     db.commit()
@@ -151,3 +183,59 @@ def stop_site(site_name: str, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(site)
     return site
+
+
+@router.post("/{site_name}/import-github", response_model=SiteOut)
+def import_github(
+    site_name: str,
+    payload: GitHubImport,
+    db: Session = Depends(get_db),
+):
+    """
+    Clone (or re-clone) a GitHub repository into a site's content directory.
+
+    - If the site already has content, the directory is replaced with a fresh clone.
+    - When `auto_detect_type` is true (default), the site's `site_type` is updated
+      based on the repository contents.
+    - Records `git_repo` and `git_branch` on the site for future reference.
+    """
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+
+    from app.services.github import clone_repo, detect_site_type, _validate_github_url
+    import shutil
+
+    try:
+        repo_url = _validate_github_url(payload.repo_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    site_dir = Path(settings.sites_base_dir) / site.name
+
+    # Remove existing content so clone starts clean (non-dev mode only)
+    if not settings.dev_mode and site_dir.exists():
+        shutil.rmtree(site_dir)
+
+    try:
+        clone_repo(repo_url, site_dir, branch=payload.branch)
+    except Exception as exc:
+        log.exception("GitHub import failed for site %s", site_name)
+        raise HTTPException(status_code=422, detail=f"GitHub clone failed: {exc}") from exc
+
+    site.git_repo = repo_url
+    site.git_branch = payload.branch
+
+    if payload.auto_detect_type:
+        detected = detect_site_type(site_dir)
+        if detected != site.site_type:
+            log.info(
+                "Updated site type for %s: %s → %s", site_name, site.site_type, detected
+            )
+            site.site_type = detected
+
+    db.commit()
+    db.refresh(site)
+    log.info("Imported GitHub repo %s into site %s", repo_url, site_name)
+    return site
+

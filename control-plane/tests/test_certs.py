@@ -13,7 +13,7 @@ def test_create_cert(client, tmp_path, monkeypatch):
     resp = client.post("/sites/certsite/cert")
     assert resp.status_code == 201
     data = resp.json()
-    assert data["domain"] == "certsite.local"
+    assert data["domain"] == "certsite.link"
     assert data["ca_signed"] is True
     assert data["cert_path"] != ""
     assert data["key_path"] != ""

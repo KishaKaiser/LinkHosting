@@ -11,11 +11,13 @@ from app.models import DatabaseEngine, SiteStatus, SiteType
 
 class SiteCreate(BaseModel):
     name: str
-    site_type: SiteType
-    domain: Optional[str] = None       # auto-derived if omitted
-    image: Optional[str] = None        # custom Docker image
-    upstream_url: Optional[str] = None # for proxy type
+    site_type: Optional[SiteType] = None   # auto-detected from repo if omitted with github_repo
+    domain: Optional[str] = None           # auto-derived if omitted
+    image: Optional[str] = None            # custom Docker image
+    upstream_url: Optional[str] = None     # for proxy type
     env_vars: Optional[dict] = None
+    github_repo: Optional[str] = None      # e.g. "https://github.com/owner/repo"
+    github_branch: Optional[str] = None    # default: repo default branch
 
     @field_validator("name")
     @classmethod
@@ -44,10 +46,20 @@ class SiteOut(BaseModel):
     container_id: Optional[str]
     image: Optional[str]
     upstream_url: Optional[str]
+    git_repo: Optional[str]
+    git_branch: Optional[str]
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── GitHub import ─────────────────────────────────────────────────────────────
+
+class GitHubImport(BaseModel):
+    repo_url: str                   # e.g. "https://github.com/owner/repo"
+    branch: Optional[str] = None    # default: repo default branch
+    auto_detect_type: bool = True   # detect site_type from repo contents
 
 
 # ── Database ──────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 
 **Internal-only multi-tenant web hosting control plane for Ubuntu 24.04.**
 
-Provision and manage multiple isolated websites on a single server — each reachable via a custom internal domain (e.g. `https://mysite.local`), with its own container, TLS certificate, database, and SFTP access.
+Provision and manage multiple isolated websites on a single server — each reachable via a custom internal domain (e.g. `https://mysite.link`), with its own container, TLS certificate, database, and SFTP access.
 
 ---
 
@@ -12,7 +12,8 @@ Provision and manage multiple isolated websites on a single server — each reac
 |---------|---------|
 | **Site types** | Static, PHP, Node.js, Python, Reverse Proxy |
 | **Isolation** | One Docker container per site |
-| **Internal domains** | `sitename.local` (configurable suffix) |
+| **Internal domains** | `sitename.link` (configurable suffix) |
+| **GitHub import** | Clone any public GitHub repo; site type auto-detected |
 | **TLS** | Internal CA — self-signed root, signed site certs |
 | **Databases** | Per-site PostgreSQL (MySQL coming soon) |
 | **SFTP** | Per-site chroot SFTP accounts |
@@ -56,6 +57,9 @@ curl http://localhost:8000/health   # → {"status":"ok"}
 # Create a static site
 ./scripts/create-site.sh mysite static
 
+# Or create a site by importing a GitHub repository (type auto-detected)
+./scripts/create-site.sh myapp node --github https://github.com/owner/myapp
+
 # Deploy it (starts Docker container + writes Nginx vhost)
 ./scripts/deploy-site.sh mysite
 
@@ -71,10 +75,10 @@ curl http://localhost:8000/health   # → {"status":"ok"}
 
 ### 5. Add DNS
 
-Add an A record pointing `mysite.local` to your host's LAN IP, or add to `/etc/hosts`:
+Add an A record pointing `mysite.link` to your host's LAN IP, or add to `/etc/hosts`:
 
 ```
-192.168.1.100  mysite.local
+192.168.1.100  mysite.link
 ```
 
 ### 6. Trust the CA
@@ -111,12 +115,13 @@ Full interactive API docs available at `http://localhost:8000/docs` when running
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/sites` | GET | List all sites |
-| `/sites` | POST | Create a site |
+| `/sites` | POST | Create a site (optionally clone a GitHub repo with `github_repo`) |
 | `/sites/{name}` | GET | Get site details |
 | `/sites/{name}` | PATCH | Update site |
 | `/sites/{name}` | DELETE | Delete site + container |
 | `/sites/{name}/deploy` | POST | Provision container + vhost |
 | `/sites/{name}/stop` | POST | Stop container |
+| `/sites/{name}/import-github` | POST | Clone/re-clone a GitHub repo into the site |
 | `/sites/{name}/cert` | POST | Issue TLS certificate |
 | `/sites/{name}/cert` | GET | List certificates |
 | `/sites/{name}/database` | POST | Create database |

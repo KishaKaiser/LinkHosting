@@ -13,7 +13,7 @@ def test_create_site(client):
     assert resp.status_code == 201
     data = resp.json()
     assert data["name"] == "mysite"
-    assert data["domain"] == "mysite.local"
+    assert data["domain"] == "mysite.link"
     assert data["site_type"] == "static"
     assert data["status"] == "pending"
 

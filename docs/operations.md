@@ -69,17 +69,15 @@ LinkHosting does not manage DNS — you must add DNS records pointing each site'
 sudo apt-get install -y dnsmasq
 
 # Add to /etc/dnsmasq.conf:
-# address=/.local/192.168.1.100
+# address=/.link/192.168.1.100
 # (Replace 192.168.1.100 with your host's LAN IP)
 sudo systemctl restart dnsmasq
 ```
 
-**Note**: `.local` conflicts with mDNS (Avahi/Bonjour). To avoid conflicts, use `.internal` or `.lan` as your `DOMAIN_SUFFIX` in `.env`.
-
 ### Option B: Pi-hole (existing Pi-hole)
 
 Add custom DNS records via the Pi-hole admin panel:
-- Domain: `mysite.local`
+- Domain: `mysite.link`
 - IP: `<host LAN IP>`
 
 ### Option C: Manual /etc/hosts (per-client, for testing)
@@ -87,8 +85,8 @@ Add custom DNS records via the Pi-hole admin panel:
 On each client machine, add to `/etc/hosts` (Linux/Mac) or `C:\Windows\System32\drivers\etc\hosts` (Windows):
 
 ```
-192.168.1.100  mysite.local
-192.168.1.100  myapp.local
+192.168.1.100  mysite.link
+192.168.1.100  myapp.link
 ```
 
 ---
@@ -100,9 +98,32 @@ On each client machine, add to `/etc/hosts` (Linux/Mac) or `C:\Windows\System32\
 ```bash
 ./scripts/create-site.sh mysite static
 ./scripts/create-site.sh myapp node
-./scripts/create-site.sh myapi python --domain myapi.internal
+./scripts/create-site.sh myapi python --domain myapi.link
 ./scripts/create-site.sh myproxy proxy --upstream http://192.168.1.50:3000
 ```
+
+### Import a GitHub repository
+
+A site can be populated with code from any **public** GitHub repository.
+
+**At creation time** (type is auto-detected from repo contents):
+
+```bash
+# site_type is inferred: package.json→node, requirements.txt→python, *.php→php, else→static
+curl -s -X POST http://localhost:8000/sites \
+  -H "Content-Type: application/json" \
+  -d '{"name":"myapp","github_repo":"https://github.com/owner/myapp"}' | python3 -m json.tool
+```
+
+**After creation** (re-import or switch repos):
+
+```bash
+curl -s -X POST http://localhost:8000/sites/myapp/import-github \
+  -H "Content-Type: application/json" \
+  -d '{"repo_url":"https://github.com/owner/myapp","branch":"main"}' | python3 -m json.tool
+```
+
+Both calls clone the repo into `/data/sites/<name>/` and record `git_repo` + `git_branch` on the site.
 
 ### Deploy a site (provision container + vhost)
 

@@ -46,6 +46,8 @@ class Site(Base):
     image: Mapped[str | None] = mapped_column(String(256), nullable=True)
     env_vars: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
     upstream_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    git_repo: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    git_branch: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
