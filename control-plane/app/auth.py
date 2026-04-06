@@ -13,6 +13,11 @@ def require_bearer_token(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
 ) -> None:
     """Validate that the request carries a correct Bearer token."""
+    if not settings.admin_secret_key:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Server authentication is not configured",
+        )
     if not secrets.compare_digest(credentials.credentials, settings.admin_secret_key):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
