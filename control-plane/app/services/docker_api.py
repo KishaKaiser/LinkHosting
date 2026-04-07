@@ -5,7 +5,6 @@ control-plane containers.  The worker and panel containers only need access to
 the Docker socket (``/var/run/docker.sock``) – no Docker CLI binary required.
 """
 import logging
-from typing import Optional
 
 import docker
 import docker.errors
@@ -57,7 +56,7 @@ def run_container(
     environment: dict,
     volumes: dict,
     network: str,
-    extra_networks: Optional[list] = None,
+    extra_networks: list | None = None,
     labels: dict,
     restart_policy: str = "unless-stopped",
 ) -> str:
@@ -134,7 +133,7 @@ def remove_volumes(names: list) -> None:
             log.warning("Error removing volume %s: %s", name, exc)
 
 
-def exec_in_container(container_name: str, cmd: list) -> tuple:
+def exec_in_container(container_name: str, cmd: list) -> tuple[int, str]:
     """Run *cmd* inside *container_name*.  Returns ``(exit_code, output_str)``."""
     client = _client()
     try:

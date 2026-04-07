@@ -152,11 +152,11 @@ def deploy_wordpress(site_name: str, domain: str) -> tuple[str, str]:
     secrets_file = site_dir / ".secrets"
 
     # Ensure compose/secrets files exist (generated once; re-used on redeploy)
+    credentials: dict = {}
     if not compose_file.exists():
         _, credentials = generate_wordpress_compose(site_name, domain)
     else:
         # Re-read existing credentials from the secrets file
-        credentials: dict = {}
         if secrets_file.exists():
             for line in secrets_file.read_text().strip().splitlines():
                 k, _, v = line.partition("=")
