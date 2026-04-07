@@ -61,8 +61,19 @@ def _container_port(site: Site) -> int:
         SiteType.node: 3000,
         SiteType.python: 8000,
         SiteType.proxy: 80,
+        SiteType.wordpress: 80,
     }
     return ports.get(site.site_type, 80)
+
+
+def _upstream_name(site: Site) -> str:
+    """Return the upstream hostname for nginx proxy_pass."""
+    from app.models import SiteType
+    if site.site_type == SiteType.wordpress:
+        # WordPress service is named via _wordpress_service_name in the per-site compose project
+        from app.services.wordpress import _wordpress_service_name
+        return _wordpress_service_name(site.name)
+    return f"site-{site.name}"
 
 
 def write_vhost(site: Site, tls: bool = False) -> Path:
@@ -71,8 +82,9 @@ def write_vhost(site: Site, tls: bool = False) -> Path:
     conf_path = PROXY_CONF_DIR / f"{site.name}.conf"
 
     port = _container_port(site)
+    upstream = _upstream_name(site)
     template = VHOST_TEMPLATE_HTTPS if tls else VHOST_TEMPLATE_HTTP
-    content = template.format(name=site.name, domain=site.domain, port=port)
+    content = template.format(name=upstream, domain=site.domain, port=port)
 
     if settings.dev_mode:
         log.info("[DEV] Would write vhost config to %s:\n%s", conf_path, content)

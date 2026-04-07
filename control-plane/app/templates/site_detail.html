@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}{{ site.name }} — LinkHosting{% endblock %}
+{% block content %}
+<div class="flex" style="justify-content: space-between; align-items: baseline;">
+    <h1>{{ site.name }}</h1>
+    <a href="/panel/" class="text-muted" style="font-size:0.9rem;">← Dashboard</a>
+</div>
+
+{% if message %}
+<div class="alert alert-success">{{ message }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="card">
+    <h2>Site Details</h2>
+    <table>
+        <tr><th>Domain</th><td>{{ site.domain }}</td></tr>
+        <tr><th>Type</th><td>{{ site.site_type }}</td></tr>
+        <tr><th>Status</th><td><span class="badge badge-{{ site.status }}">{{ site.status }}</span></td></tr>
+        {% if site.container_id %}
+        <tr><th>Container</th><td><code>{{ site.container_id[:24] if site.container_id|length > 24 else site.container_id }}</code></td></tr>
+        {% endif %}
+        <tr><th>Created</th><td>{{ site.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
+        <tr><th>Updated</th><td>{{ site.updated_at.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
+    </table>
+</div>
+
+<div class="card">
+    <h2>Actions</h2>
+    <div class="flex">
+        <form method="post" action="/panel/sites/{{ site.name }}/deploy">
+            <button type="submit" class="btn btn-primary">🚀 Deploy</button>
+        </form>
+        <form method="post" action="/panel/sites/{{ site.name }}/stop">
+            <button type="submit" class="btn btn-secondary">⏹ Stop</button>
+        </form>
+        <form method="post" action="/panel/sites/{{ site.name }}/delete"
+              onsubmit="return confirm('Delete site {{ site.name }}? This cannot be undone.')">
+            <button type="submit" class="btn btn-danger">🗑 Delete</button>
+        </form>
+    </div>
+    {% if site.site_type == 'wordpress' %}
+    <p class="text-muted mt-1">WordPress sites are deployed via docker-compose. Deploy runs in the background — check the Jobs section below.</p>
+    {% endif %}
+</div>
+
+{% if jobs %}
+<div class="card">
+    <h2>Deploy Jobs</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Status</th>
+                <th>Started</th>
+                <th>Logs</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for job in jobs %}
+        <tr>
+            <td>{{ job.id }}</td>
+            <td><span class="badge badge-{{ job.status }}">{{ job.status }}</span></td>
+            <td class="text-muted">{{ job.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</td>
+            <td>
+                {% if job.logs %}
+                <details>
+                    <summary style="cursor:pointer; font-size:0.85rem;">View logs</summary>
+                    <pre>{{ job.logs }}</pre>
+                </details>
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

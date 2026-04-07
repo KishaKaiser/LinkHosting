@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — LinkHosting{% endblock %}
+{% block content %}
+<div class="flex" style="justify-content: space-between; align-items: baseline;">
+    <h1>Sites</h1>
+    <a href="/panel/sites/new" class="btn btn-primary">+ New Site</a>
+</div>
+
+{% if sites %}
+<div class="card" style="padding: 0; overflow: hidden;">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Domain</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for site in sites %}
+            <tr>
+                <td><a href="/panel/sites/{{ site.name }}">{{ site.name }}</a></td>
+                <td><span class="text-muted">{{ site.domain }}</span></td>
+                <td>{{ site.site_type }}</td>
+                <td><span class="badge badge-{{ site.status }}">{{ site.status }}</span></td>
+                <td class="text-muted">{{ site.created_at.strftime('%Y-%m-%d') }}</td>
+                <td><a href="/panel/sites/{{ site.name }}" class="btn btn-secondary" style="font-size:0.8rem; padding:0.25rem 0.6rem;">Details →</a></td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card" style="text-align:center; padding: 3rem;">
+    <p class="text-muted">No sites yet. <a href="/panel/sites/new">Create your first site →</a></p>
+</div>
+{% endif %}
+{% endblock %}

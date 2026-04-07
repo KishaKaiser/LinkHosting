@@ -98,6 +98,6 @@ def test_stop_site_dev_mode(client):
 
 
 def test_all_site_types(client):
-    for i, stype in enumerate(["static", "php", "node", "python", "proxy"]):
+    for i, stype in enumerate(["static", "php", "node", "python", "proxy", "wordpress"]):
         resp = client.post("/sites", json={"name": f"site-{i}", "site_type": stype})
         assert resp.status_code == 201, f"Failed for type {stype}: {resp.json()}"

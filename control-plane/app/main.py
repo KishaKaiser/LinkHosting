@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.database import Base, engine
@@ -13,6 +14,8 @@ from app.api import sites as sites_router
 from app.api import certs as certs_router
 from app.api import databases as databases_router
 from app.api import sftp as sftp_router
+from app.api import jobs as jobs_router
+from app.api import ui as ui_router
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -39,6 +42,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Session middleware (must be added before CORS)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret_key,
+    session_cookie="lh_session",
+    https_only=False,  # HTTP is acceptable for MVP / home hosting
+    same_site="lax",
+)
+
 # CORS — restrict to internal network in production
 app.add_middleware(
     CORSMiddleware,
@@ -52,6 +64,8 @@ app.include_router(sites_router.router)
 app.include_router(certs_router.router)
 app.include_router(databases_router.router)
 app.include_router(sftp_router.router)
+app.include_router(jobs_router.router)
+app.include_router(ui_router.router)
 
 
 @app.get("/health", tags=["system"])
@@ -69,3 +83,4 @@ def download_ca_root():
         media_type="application/x-pem-file",
         headers={"Content-Disposition": "attachment; filename=linkhosting-ca.crt"},
     )
+

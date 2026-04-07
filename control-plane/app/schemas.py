@@ -4,7 +4,7 @@ from typing import Optional
 
 from pydantic import BaseModel, field_validator
 
-from app.models import DatabaseEngine, SiteStatus, SiteType
+from app.models import DatabaseEngine, JobStatus, SiteStatus, SiteType
 
 
 # ── Site ──────────────────────────────────────────────────────────────────────
@@ -126,3 +126,17 @@ class SFTPCredentials(BaseModel):
     home_dir: str
     ssh_host: str
     ssh_port: int = 2222
+
+
+# ── Deploy Jobs ───────────────────────────────────────────────────────────────
+
+class DeployJobOut(BaseModel):
+    id: int
+    site_id: int
+    rq_job_id: Optional[str]
+    status: JobStatus
+    logs: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
