@@ -17,7 +17,6 @@ services:
       DEV_MODE: "true"
       DATABASE_URL: "postgresql://${DB_USER:-linkhosting}:${DB_PASSWORD:-devpassword}@db:5432/${DB_NAME:-linkhosting}"
       ADMIN_SECRET_KEY: "dev-secret-key"
-      SESSION_SECRET_KEY: "dev-session-secret"
 
   db:
     environment:

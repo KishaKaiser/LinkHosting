@@ -160,7 +160,11 @@ def deploy_wordpress(site_name: str, domain: str) -> tuple[str, str]:
         capture_output=True,
         text=True,
         timeout=300,
-        env={**os.environ},
+        env={
+            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+            "HOME": os.environ.get("HOME", "/root"),
+            "DOCKER_HOST": os.environ.get("DOCKER_HOST", ""),
+        },
     )
 
     stdout = result.stdout.strip()
@@ -207,7 +211,11 @@ def stop_wordpress(site_name: str) -> tuple[str, str]:
         capture_output=True,
         text=True,
         timeout=120,
-        env={**os.environ},
+        env={
+            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+            "HOME": os.environ.get("HOME", "/root"),
+            "DOCKER_HOST": os.environ.get("DOCKER_HOST", ""),
+        },
     )
 
     stdout = result.stdout.strip()

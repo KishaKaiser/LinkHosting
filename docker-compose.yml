@@ -128,7 +128,6 @@ services:
       CERTS_BASE_DIR:      /data/certs
       PROXY_CONFIG_DIR:    /data/proxy/conf.d
       ADMIN_SECRET_KEY:    ${ADMIN_SECRET_KEY:?ADMIN_SECRET_KEY must be set}
-      SESSION_SECRET_KEY:  ${SESSION_SECRET_KEY:-worker-session-key}
       DOMAIN_SUFFIX:       ${DOMAIN_SUFFIX:-local}
       REDIS_URL:           redis://redis:6379/0
       DEV_MODE:            ${DEV_MODE:-false}

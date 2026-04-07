@@ -260,7 +260,7 @@ async def deploy_site_ui(request: Request, site_name: str, db: Session = Depends
             log.exception("UI: Deploy failed for %s", site_name)
             request.session["flash_error"] = f"Deploy failed: {exc}"
 
-    return RedirectResponse(f"/panel/sites/{site_name}", status_code=302)
+    return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
 
 def _enqueue_deploy_job(job_record: "DeployJob", site: "Site", db: "Session") -> "str | None":
@@ -312,7 +312,7 @@ async def stop_site_ui(request: Request, site_name: str, db: Session = Depends(g
     site.container_id = None
     db.commit()
     request.session["flash_message"] = "Site stopped."
-    return RedirectResponse(f"/panel/sites/{site_name}", status_code=302)
+    return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
 
 # ── Delete action ─────────────────────────────────────────────────────────────
