@@ -99,3 +99,90 @@ def test_get_ca_cert_pem_dev_mode():
     from app.services.cert import get_ca_cert_pem
     pem = get_ca_cert_pem()
     assert "cert" in pem.lower() or "dev" in pem.lower()
+
+
+# ── DNS service tests ──────────────────────────────────────────────────────
+
+def test_dns_add_record_dev_mode(tmp_path, monkeypatch):
+    """In dev mode, add_dns_record should log but not write any file."""
+    monkeypatch.setenv("DNS_HOSTS_FILE", str(tmp_path / "hosts"))
+    monkeypatch.setenv("HOST_LAN_IP", "192.168.4.32")
+
+    import importlib
+    import app.config as config_module
+    config_module.settings = config_module.Settings()
+
+    from app.services import dns as dns_module
+    importlib.reload(dns_module)
+
+    dns_module.add_dns_record("mysite.link")
+    # dev mode: file should NOT be created
+    assert not (tmp_path / "hosts").exists()
+
+
+def test_dns_remove_record_dev_mode(tmp_path, monkeypatch):
+    """In dev mode, remove_dns_record should log but not touch any file."""
+    monkeypatch.setenv("DNS_HOSTS_FILE", str(tmp_path / "hosts"))
+    monkeypatch.setenv("HOST_LAN_IP", "192.168.4.32")
+
+    import importlib
+    import app.config as config_module
+    config_module.settings = config_module.Settings()
+
+    from app.services import dns as dns_module
+    importlib.reload(dns_module)
+
+    # Should not raise even when no file exists
+    dns_module.remove_dns_record("mysite.link")
+    assert not (tmp_path / "hosts").exists()
+
+
+def test_dns_disabled_skips_write(tmp_path, monkeypatch):
+    """When DNS_ENABLED=false, no file should be written."""
+    monkeypatch.setenv("DNS_HOSTS_FILE", str(tmp_path / "hosts"))
+    monkeypatch.setenv("HOST_LAN_IP", "192.168.4.32")
+    monkeypatch.setenv("DNS_ENABLED", "false")
+    # Turn off dev mode so the disabled check is reached first
+    monkeypatch.setenv("DEV_MODE", "false")
+
+    import importlib
+    import app.config as config_module
+    config_module.settings = config_module.Settings()
+
+    from app.services import dns as dns_module
+    importlib.reload(dns_module)
+
+    dns_module.add_dns_record("mysite.link")
+    assert not (tmp_path / "hosts").exists()
+
+
+def test_dns_read_write_records(tmp_path, monkeypatch):
+    """_read_records / _write_records round-trip (no Docker calls needed)."""
+    hosts_file = tmp_path / "hosts"
+    monkeypatch.setenv("DNS_HOSTS_FILE", str(hosts_file))
+    monkeypatch.setenv("HOST_LAN_IP", "192.168.4.32")
+    monkeypatch.setenv("DNS_ENABLED", "true")
+    monkeypatch.setenv("DEV_MODE", "false")
+
+    import importlib
+    import app.config as config_module
+    config_module.settings = config_module.Settings()
+
+    from app.services import dns as dns_module
+    importlib.reload(dns_module)
+
+    # Write two records directly
+    dns_module._write_records({"alpha.link": "10.0.0.1", "beta.link": "10.0.0.2"})
+    assert hosts_file.exists()
+
+    records = dns_module._read_records()
+    assert records["alpha.link"] == "10.0.0.1"
+    assert records["beta.link"] == "10.0.0.2"
+
+    # Remove one and verify
+    del records["alpha.link"]
+    dns_module._write_records(records)
+    updated = dns_module._read_records()
+    assert "alpha.link" not in updated
+    assert "beta.link" in updated
+

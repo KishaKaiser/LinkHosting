@@ -16,6 +16,7 @@ Provision and manage multiple isolated websites on a single server via a **web-b
 | **Background Jobs** | Redis + RQ worker for async WordPress deployments |
 | **Isolation** | Per-site Docker container or docker-compose project |
 | **Internal domains** | `sitename.link` (configurable suffix) |
+| **Built-in DNS** | CoreDNS serves `sitename.link` records automatically; clients point to this server |
 | **Nginx proxy** | Auto-generated per-site vhost configs; nginx reloaded on deploy |
 | **GitHub import** | Clone any public GitHub repo; site type auto-detected |
 | **TLS** | Internal CA — self-signed root, signed site certs |
@@ -34,6 +35,7 @@ Provision and manage multiple isolated websites on a single server via a **web-b
 | `worker` | RQ worker — executes async WordPress deploy jobs |
 | `redis` | Job queue backend |
 | `proxy` | Nginx reverse proxy — routes domains to per-site containers |
+| `dns` | CoreDNS — resolves `*.link` names to the host LAN IP for LAN clients |
 | `db` | PostgreSQL — control-plane data |
 | `db-pg` | PostgreSQL — per-site databases |
 | `sftp-server` | OpenSSH SFTP server |
@@ -79,7 +81,7 @@ Non-interactive / silent install:
 The installer will:
 1. Check prerequisites (Docker, docker compose, OpenSSL, curl, git)
 2. Copy `.env.example` → `.env` and generate strong random secrets
-3. Prompt for optional settings (domain suffix, bind address, SFTP port)
+3. Prompt for optional settings (domain suffix, bind address, SFTP port, **host LAN IP for DNS**)
 4. Start the Docker Compose stack (`docker compose up -d --build`)
 5. Wait for the API health check and print a post-install summary
 
@@ -100,6 +102,7 @@ sudo usermod -aG docker $USER && newgrp docker
 ```bash
 cp .env.example .env
 # Edit .env — set strong passwords for DB_PASSWORD, SITE_DB_PASSWORD, ADMIN_SECRET_KEY
+# Also set HOST_LAN_IP to the LAN IP of this server (e.g. 192.168.4.32)
 nano .env
 ```
 
@@ -121,11 +124,7 @@ Log in with the password set in `ADMIN_SECRET_KEY`.
 3. Fill in a name (e.g. `myblog`), select **WordPress**, click Create
 4. On the site detail page, click **🚀 Deploy**
 5. The deploy job is queued and the `worker` service handles it asynchronously.
-   Refresh the page to see job status. Once `succeeded`, add a DNS record:
-
-```
-192.168.x.x  myblog.link
-```
+   Refresh the page to see job status. Once `succeeded`, the site is live at `http://myblog.link`.
 
 Visit `http://myblog.link` to see your WordPress installation.
 
@@ -161,13 +160,31 @@ python3 scripts/lh.py create-sftp mysite           # ← save the password!
 ./scripts/create-sftp.sh mysite
 ```
 
-### 6. Add DNS
+### 6. Configure clients to use the built-in DNS server
 
-Add an A record pointing `mysite.link` to your host's LAN IP, or add to `/etc/hosts`:
+LinkHosting runs a **CoreDNS** service that automatically creates a DNS record for every deployed site (`sitename.link → HOST_LAN_IP`).  No manual `/etc/hosts` entries are needed.
 
+For LAN clients to resolve `*.link` names, they must use this server as their DNS resolver.
+
+**Option A (recommended) — router DHCP:**
+Configure your router's DHCP settings to hand out the server's LAN IP (e.g. `192.168.4.32`) as the primary DNS server. All LAN devices will then resolve `*.link` automatically.
+
+**Option B — per-device:**
+Set the server's LAN IP as the DNS server manually on each device.
+
+**Verify DNS is working:**
+```bash
+# Replace 192.168.4.32 with your actual server LAN IP
+dig mysite.link @192.168.4.32          # should return your server's LAN IP
+nslookup mysite.link 192.168.4.32      # alternative
 ```
-192.168.4.32  mysite.link
-```
+
+**Troubleshooting:**
+- If `dig` returns NXDOMAIN, the site may not have been deployed yet, or `HOST_LAN_IP` is not set in `.env`.
+- Check CoreDNS logs: `docker compose logs dns`
+- Check port 53 is reachable: `nc -zu <server-lan-ip> 53`
+- Confirm the hosts file is populated: `docker compose exec panel cat /data/dns/hosts`
+- If `DNS_ENABLED=false` in `.env`, DNS records are not managed automatically.
 
 ### 7. Trust the CA
 
@@ -193,6 +210,9 @@ See [docs/ca-trust.md](docs/ca-trust.md) for other platforms (macOS, Windows, Fi
 | `PANEL_PORT` | | `127.0.0.1:8000` | Host:port to expose the panel on |
 | `SFTP_PORT` | | `2222` | Host port for SFTP server |
 | `DEV_MODE` | | `false` | Skip real Docker calls (for local dev) |
+| `DNS_ENABLED` | | `true` | Enable built-in CoreDNS and auto DNS record management |
+| `HOST_LAN_IP` | | — | Server LAN IP; A records for `sitename.link` resolve here |
+| `DNS_LISTEN_ADDR` | | `0.0.0.0` | Address CoreDNS binds port 53 on |
 
 ---
 

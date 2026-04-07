@@ -34,5 +34,11 @@ class Settings(BaseSettings):
     # Dev mode (skip real Docker/system calls)
     dev_mode: bool = False
 
+    # DNS
+    dns_enabled: bool = True
+    host_lan_ip: str = ""
+    dns_hosts_file: str = "/data/dns/hosts"
+    dns_container_name: str = "lh-dns"
+
 
 settings = Settings()
