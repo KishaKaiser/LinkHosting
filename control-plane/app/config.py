@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     # Docker
     docker_socket: str = "unix:///var/run/docker.sock"
     docker_network: str = "linkhosting"
-    sites_base_dir: str = "/data/sites"
+    sites_base_dir: str = "/srv/linkhosting/sites"
     certs_base_dir: str = "/data/certs"
     sftp_base_dir: str = "/data/sftp"
 
@@ -23,9 +23,13 @@ class Settings(BaseSettings):
     # Auth
     admin_secret_key: str = "change-me-in-production"
     admin_token_expire_minutes: int = 60
+    session_secret_key: str = "change-me-session-secret"
 
     # Site domain suffix
     domain_suffix: str = "link"
+
+    # Redis / RQ
+    redis_url: str = "redis://redis:6379/0"
 
     # Dev mode (skip real Docker/system calls)
     dev_mode: bool = False

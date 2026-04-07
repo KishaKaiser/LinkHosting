@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}LinkHosting{% endblock %}</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, sans-serif; background: #f4f6f8; color: #1a1a2e; min-height: 100vh; }
+        header { background: #16213e; color: #fff; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
+        header a { color: #e0e0e0; text-decoration: none; font-weight: 600; font-size: 1.1rem; }
+        header nav a { color: #a0c4ff; margin-left: 1.5rem; font-size: 0.9rem; }
+        header nav a:hover { color: #fff; }
+        main { max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+        h1 { font-size: 1.6rem; margin-bottom: 1rem; }
+        h2 { font-size: 1.2rem; margin-bottom: 0.75rem; color: #16213e; }
+        .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
+        .btn { display: inline-block; padding: 0.45rem 1rem; border-radius: 5px; border: none; cursor: pointer; font-size: 0.9rem; text-decoration: none; }
+        .btn-primary { background: #0078d4; color: #fff; }
+        .btn-primary:hover { background: #005a9e; }
+        .btn-danger { background: #c0392b; color: #fff; }
+        .btn-success { background: #27ae60; color: #fff; }
+        .btn-secondary { background: #6c757d; color: #fff; }
+        .badge { display: inline-block; padding: 0.2rem 0.55rem; border-radius: 12px; font-size: 0.78rem; font-weight: 600; }
+        .badge-running { background: #d4edda; color: #155724; }
+        .badge-pending { background: #fff3cd; color: #856404; }
+        .badge-stopped { background: #e2e3e5; color: #383d41; }
+        .badge-error { background: #f8d7da; color: #721c24; }
+        .badge-queued { background: #cce5ff; color: #004085; }
+        .badge-succeeded { background: #d4edda; color: #155724; }
+        .badge-failed { background: #f8d7da; color: #721c24; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid #e9ecef; }
+        th { background: #f8f9fa; font-size: 0.85rem; text-transform: uppercase; letter-spacing: .03em; color: #6c757d; }
+        tr:hover td { background: #f8f9fa; }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; margin-bottom: 0.3rem; font-size: 0.9rem; font-weight: 500; }
+        input[type=text], input[type=password], select, textarea { width: 100%; padding: 0.45rem 0.7rem; border: 1px solid #ced4da; border-radius: 5px; font-size: 0.9rem; }
+        input:focus, select:focus { outline: 2px solid #0078d4; border-color: #0078d4; }
+        .alert { padding: 0.75rem 1rem; border-radius: 5px; margin-bottom: 1rem; font-size: 0.9rem; }
+        .alert-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        pre { background: #1a1a2e; color: #e0e0e0; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.82rem; white-space: pre-wrap; word-break: break-all; }
+        .flex { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+        .mt-1 { margin-top: 0.5rem; }
+        .text-muted { color: #6c757d; font-size: 0.88rem; }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+<header>
+    <a href="/panel/">🔗 LinkHosting</a>
+    <nav>
+        <a href="/panel/">Dashboard</a>
+        <a href="/panel/sites/new">New Site</a>
+        <a href="/panel/logout">Logout</a>
+    </nav>
+</header>
+<main>
+    {% block content %}{% endblock %}
+</main>
+</body>
+</html>

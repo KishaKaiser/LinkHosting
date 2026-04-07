@@ -4,13 +4,13 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.auth import require_bearer_token
 from app.database import get_db
-from app.models import Site, SiteStatus, SiteType
-from app.schemas import GitHubImport, SiteCreate, SiteOut, SiteUpdate
+from app.models import DeployJob, JobStatus, Site, SiteStatus, SiteType
+from app.schemas import DeployJobOut, GitHubImport, SiteCreate, SiteOut, SiteUpdate
 from app.config import settings
 
 log = logging.getLogger(__name__)
@@ -128,11 +128,15 @@ def delete_site(site_name: str, db: Session = Depends(get_db)):
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
 
-    # Stop container if running
-    from app.services.container import stop_container
     from app.services.proxy import remove_vhost, reload_proxy
 
-    stop_container(site)
+    if site.site_type == SiteType.wordpress:
+        from app.services.wordpress import stop_wordpress
+        stop_wordpress(site.name)
+    else:
+        from app.services.container import stop_container
+        stop_container(site)
+
     remove_vhost(site.name)
     reload_proxy()
 
@@ -146,6 +150,10 @@ def deploy_site(site_name: str, db: Session = Depends(get_db)):
     site = db.query(Site).filter(Site.name == site_name).first()
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
+
+    # WordPress sites are deployed asynchronously via docker-compose
+    if site.site_type == SiteType.wordpress:
+        return _deploy_wordpress_async(site, db)
 
     from app.services.container import provision_container
     from app.services.proxy import write_vhost, reload_proxy
@@ -174,20 +182,108 @@ def deploy_site(site_name: str, db: Session = Depends(get_db)):
     return site
 
 
+def _deploy_wordpress_async(site: Site, db: Session) -> Site:
+    """Create a DeployJob and enqueue it; return the site record."""
+    job_record = DeployJob(site_id=site.id, status=JobStatus.queued)
+    db.add(job_record)
+    db.commit()
+    db.refresh(job_record)
+
+    try:
+        import redis as _redis
+        from rq import Queue
+        from app.jobs import run_wordpress_deploy
+
+        conn = _redis.from_url(settings.redis_url)
+        q = Queue("deploy", connection=conn)
+        rq_job = q.enqueue(run_wordpress_deploy, job_record.id)
+        job_record.rq_job_id = rq_job.id
+        db.commit()
+        log.info("Enqueued WordPress deploy job %d (rq=%s) for site %s",
+                 job_record.id, rq_job.id, site.name)
+    except Exception as exc:
+        log.warning("RQ unavailable (%s) — running deploy inline", exc)
+        if settings.dev_mode:
+            _run_deploy_inline(job_record, site, db)
+
+    db.refresh(site)
+    return site
+
+
+def _run_deploy_inline(job_record: DeployJob, site: Site, db: Session) -> None:
+    """Execute a WordPress deploy synchronously using the provided DB session."""
+    from app.services.wordpress import deploy_wordpress, generate_wordpress_compose
+    from app.services.proxy import write_vhost, reload_proxy
+
+    job_record.status = JobStatus.running
+    db.commit()
+
+    log_lines: list[str] = []
+    try:
+        compose_file, _ = generate_wordpress_compose(site.name, site.domain)
+        log_lines.append(f"Generated compose file: {compose_file}")
+
+        stdout, stderr = deploy_wordpress(site.name, site.domain)
+        if stdout:
+            log_lines.append(stdout)
+        if stderr:
+            log_lines.append(stderr)
+
+        write_vhost(site, tls=False)
+        log_lines.append(f"Wrote nginx vhost for {site.domain}")
+        reload_proxy()
+        log_lines.append("Nginx reloaded")
+
+        from app.services.wordpress import get_wordpress_container_name
+        site.container_id = get_wordpress_container_name(site.name)
+        site.status = SiteStatus.running
+        db.commit()
+
+        job_record.status = JobStatus.succeeded
+        job_record.logs = "\n".join(log_lines)
+        db.commit()
+    except Exception as exc:
+        log.exception("Inline deploy failed for site %s", site.name)
+        log_lines.append(f"ERROR: {exc}")
+        job_record.status = JobStatus.failed
+        job_record.logs = "\n".join(log_lines)
+        site.status = SiteStatus.error
+        db.commit()
+
+
 @router.post("/{site_name}/stop", response_model=SiteOut)
 def stop_site(site_name: str, db: Session = Depends(get_db)):
     site = db.query(Site).filter(Site.name == site_name).first()
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
 
-    from app.services.container import stop_container
+    if site.site_type == SiteType.wordpress:
+        from app.services.wordpress import stop_wordpress
+        stop_wordpress(site.name)
+    else:
+        from app.services.container import stop_container
+        stop_container(site)
 
-    stop_container(site)
     site.status = SiteStatus.stopped
     site.container_id = None
     db.commit()
     db.refresh(site)
     return site
+
+
+@router.get("/{site_name}/jobs", response_model=list[DeployJobOut])
+def list_site_jobs(site_name: str, db: Session = Depends(get_db)):
+    """List deploy jobs for a site."""
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    return (
+        db.query(DeployJob)
+        .filter(DeployJob.site_id == site.id)
+        .order_by(DeployJob.id.desc())
+        .limit(50)
+        .all()
+    )
 
 
 @router.post("/{site_name}/import-github", response_model=SiteOut)

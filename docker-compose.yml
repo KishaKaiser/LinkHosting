@@ -56,30 +56,48 @@ services:
       retries: 5
     logging: *default-logging
 
-  # ── Control Plane API ──────────────────────────────────────────────────────
-  control-plane:
+  # ── Redis (job queue) ──────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: lh-redis
+    restart: unless-stopped
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  # ── Control Plane (panel + API) ────────────────────────────────────────────
+  panel:
     build:
       context: ./control-plane
       dockerfile: Dockerfile
-    container_name: lh-control-plane
+    container_name: lh-panel
     restart: unless-stopped
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       DATABASE_URL:        postgresql://${DB_USER:-linkhosting}:${DB_PASSWORD}@db:5432/${DB_NAME:-linkhosting}
       DOCKER_SOCKET:       unix:///var/run/docker.sock
       DOCKER_NETWORK:      ${COMPOSE_PROJECT_NAME:-linkhosting}_sites
-      SITES_BASE_DIR:      /data/sites
+      SITES_BASE_DIR:      /srv/linkhosting/sites
       CERTS_BASE_DIR:      /data/certs
       SFTP_BASE_DIR:       /data/sftp
       PROXY_CONFIG_DIR:    /data/proxy/conf.d
       ADMIN_SECRET_KEY:    ${ADMIN_SECRET_KEY:?ADMIN_SECRET_KEY must be set}
+      SESSION_SECRET_KEY:  ${SESSION_SECRET_KEY:?SESSION_SECRET_KEY must be set}
       DOMAIN_SUFFIX:       ${DOMAIN_SUFFIX:-local}
+      REDIS_URL:           redis://redis:6379/0
       DEV_MODE:            ${DEV_MODE:-false}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - sites_data:/data/sites
+      - sites_data:/srv/linkhosting/sites
       - certs_data:/data/certs
       - sftp_data:/data/sftp
       - proxy_conf:/data/proxy/conf.d
@@ -87,7 +105,38 @@ services:
       - backend
       - proxy
     ports:
-      - "${CONTROL_PLANE_PORT:-127.0.0.1:8000}:8000"
+      - "${PANEL_PORT:-127.0.0.1:8000}:8000"
+    logging: *default-logging
+
+  # ── RQ Worker (background deploy jobs) ────────────────────────────────────
+  worker:
+    build:
+      context: ./control-plane
+      dockerfile: Dockerfile
+    container_name: lh-worker
+    restart: unless-stopped
+    command: ["rq", "worker", "--url", "redis://redis:6379/0", "deploy"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL:        postgresql://${DB_USER:-linkhosting}:${DB_PASSWORD}@db:5432/${DB_NAME:-linkhosting}
+      DOCKER_SOCKET:       unix:///var/run/docker.sock
+      SITES_BASE_DIR:      /srv/linkhosting/sites
+      CERTS_BASE_DIR:      /data/certs
+      PROXY_CONFIG_DIR:    /data/proxy/conf.d
+      ADMIN_SECRET_KEY:    ${ADMIN_SECRET_KEY:?ADMIN_SECRET_KEY must be set}
+      DOMAIN_SUFFIX:       ${DOMAIN_SUFFIX:-local}
+      REDIS_URL:           redis://redis:6379/0
+      DEV_MODE:            ${DEV_MODE:-false}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - sites_data:/srv/linkhosting/sites
+      - proxy_conf:/data/proxy/conf.d
+    networks:
+      - backend
     logging: *default-logging
 
   # ── Nginx Reverse Proxy ────────────────────────────────────────────────────
@@ -98,7 +147,7 @@ services:
     container_name: lh-proxy
     restart: unless-stopped
     depends_on:
-      - control-plane
+      - panel
     volumes:
       - proxy_conf:/etc/nginx/conf.d:ro
       - certs_data:/etc/nginx/certs:ro
@@ -119,7 +168,7 @@ services:
     restart: unless-stopped
     volumes:
       - sftp_data:/data/sftp
-      - sites_data:/data/sites
+      - sites_data:/srv/linkhosting/sites
     networks:
       - backend
     ports:
@@ -140,6 +189,7 @@ networks:
     internal: true
   proxy:
     driver: bridge
+    name: linkhosting_proxy
   sites:
     name: ${COMPOSE_PROJECT_NAME:-linkhosting}_sites
     driver: bridge

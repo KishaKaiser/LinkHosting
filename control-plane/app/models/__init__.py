@@ -23,6 +23,7 @@ class SiteType(str, enum.Enum):
     node = "node"
     python = "python"
     proxy = "proxy"
+    wordpress = "wordpress"
 
 
 class SiteStatus(str, enum.Enum):
@@ -63,6 +64,9 @@ class Site(Base):
     )
     sftp_accounts: Mapped[list["SFTPAccount"]] = relationship(
         "SFTPAccount", back_populates="site", cascade="all, delete-orphan"
+    )
+    deploy_jobs: Mapped[list["DeployJob"]] = relationship(
+        "DeployJob", back_populates="site", cascade="all, delete-orphan"
     )
 
 
@@ -122,3 +126,31 @@ class SFTPAccount(Base):
     )
 
     site: Mapped["Site"] = relationship("Site", back_populates="sftp_accounts")
+
+
+class JobStatus(str, enum.Enum):
+    queued = "queued"
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+
+
+class DeployJob(Base):
+    """Tracks background deployment jobs (WordPress docker-compose deployments)."""
+    __tablename__ = "deploy_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    site_id: Mapped[int] = mapped_column(Integer, ForeignKey("sites.id"), nullable=False)
+    rq_job_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    status: Mapped[JobStatus] = mapped_column(
+        Enum(JobStatus), default=JobStatus.queued, nullable=False
+    )
+    logs: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    site: Mapped["Site"] = relationship("Site", back_populates="deploy_jobs")

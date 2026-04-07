@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}New Site — LinkHosting{% endblock %}
+{% block content %}
+<h1>Create New Site</h1>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="max-width: 540px;">
+    <form method="post" action="/panel/sites/new">
+        <div class="form-group">
+            <label for="name">Site Name <span style="color:#c0392b">*</span></label>
+            <input type="text" id="name" name="name" required
+                   pattern="[a-z0-9][a-z0-9\-]{0,62}"
+                   placeholder="my-site"
+                   value="{{ form.name or '' }}" />
+            <p class="text-muted mt-1">Lowercase letters, numbers, hyphens. Used as subdomain prefix.</p>
+        </div>
+
+        <div class="form-group">
+            <label for="site_type">Site Type <span style="color:#c0392b">*</span></label>
+            <select id="site_type" name="site_type" required>
+                <option value="">— select —</option>
+                <option value="wordpress" {% if form.site_type == 'wordpress' %}selected{% endif %}>WordPress (docker-compose)</option>
+                <option value="static"    {% if form.site_type == 'static'    %}selected{% endif %}>Static</option>
+                <option value="php"       {% if form.site_type == 'php'       %}selected{% endif %}>PHP</option>
+                <option value="node"      {% if form.site_type == 'node'      %}selected{% endif %}>Node.js</option>
+                <option value="python"    {% if form.site_type == 'python'    %}selected{% endif %}>Python</option>
+                <option value="proxy"     {% if form.site_type == 'proxy'     %}selected{% endif %}>Reverse Proxy</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="domain">Custom Domain</label>
+            <input type="text" id="domain" name="domain"
+                   placeholder="Leave blank to auto-generate (name.{{ domain_suffix }})"
+                   value="{{ form.domain or '' }}" />
+        </div>
+
+        <div class="flex mt-1">
+            <button type="submit" class="btn btn-primary">Create Site</button>
+            <a href="/panel/" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

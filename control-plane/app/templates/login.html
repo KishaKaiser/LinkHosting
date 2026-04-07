@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login — LinkHosting</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, sans-serif; background: #f4f6f8; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .login-card { background: #fff; border-radius: 10px; box-shadow: 0 2px 16px rgba(0,0,0,.12); padding: 2.5rem 2rem; width: 100%; max-width: 380px; }
+        h1 { font-size: 1.5rem; margin-bottom: 0.25rem; color: #16213e; text-align: center; }
+        .subtitle { text-align: center; color: #6c757d; font-size: 0.9rem; margin-bottom: 1.75rem; }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; margin-bottom: 0.3rem; font-size: 0.9rem; font-weight: 500; }
+        input[type=password] { width: 100%; padding: 0.55rem 0.8rem; border: 1px solid #ced4da; border-radius: 5px; font-size: 0.95rem; }
+        input:focus { outline: 2px solid #0078d4; border-color: #0078d4; }
+        .btn { width: 100%; padding: 0.6rem; background: #0078d4; color: #fff; border: none; border-radius: 5px; font-size: 1rem; cursor: pointer; margin-top: 0.5rem; }
+        .btn:hover { background: #005a9e; }
+        .alert { padding: 0.65rem 0.9rem; border-radius: 5px; margin-bottom: 1rem; font-size: 0.9rem; background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+<div class="login-card">
+    <h1>🔗 LinkHosting</h1>
+    <p class="subtitle">Control Panel</p>
+    {% if error %}
+    <div class="alert">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/panel/login">
+        <div class="form-group">
+            <label for="password">Admin Password</label>
+            <input type="password" id="password" name="password" required autofocus placeholder="Enter admin password" />
+        </div>
+        <button type="submit" class="btn">Sign In</button>
+    </form>
+</div>
+</body>
+</html>

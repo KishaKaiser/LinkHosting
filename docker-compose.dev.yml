@@ -3,13 +3,20 @@
 # Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 services:
-  control-plane:
+  panel:
     environment:
       DEV_MODE: "true"
       DATABASE_URL: "postgresql://${DB_USER:-linkhosting}:${DB_PASSWORD:-devpassword}@db:5432/${DB_NAME:-linkhosting}"
       ADMIN_SECRET_KEY: "dev-secret-key"
+      SESSION_SECRET_KEY: "dev-session-secret"
     ports:
       - "8000:8000"
+
+  worker:
+    environment:
+      DEV_MODE: "true"
+      DATABASE_URL: "postgresql://${DB_USER:-linkhosting}:${DB_PASSWORD:-devpassword}@db:5432/${DB_NAME:-linkhosting}"
+      ADMIN_SECRET_KEY: "dev-secret-key"
 
   db:
     environment:
