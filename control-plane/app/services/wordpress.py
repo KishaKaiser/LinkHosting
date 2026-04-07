@@ -1,11 +1,13 @@
-"""WordPress per-site docker-compose deployment service."""
+"""WordPress per-site deployment service.
+
+Uses the Docker Engine API (via the Python Docker SDK) so that no ``docker``
+CLI binary is required inside the worker/panel containers.  The compose YAML
+and ``.secrets`` files are still generated for visibility / manual recovery.
+"""
 import logging
-import os
 import secrets
 import string
-import subprocess
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -133,50 +135,113 @@ def generate_wordpress_compose(site_name: str, domain: str) -> tuple[Path, dict]
 
 def deploy_wordpress(site_name: str, domain: str) -> tuple[str, str]:
     """
-    Deploy a WordPress site using docker compose.
+    Deploy a WordPress site using the Docker Engine API.
 
-    Returns (stdout, stderr) from docker compose up -d.
-    Raises RuntimeError on non-zero exit.
+    Creates the required networks, volumes, and containers via the Docker SDK.
+    Returns (stdout_msg, stderr_msg).
+    Raises RuntimeError on failure.
     """
-    site_dir = site_project_dir(site_name)
-    compose_file = site_dir / "docker-compose.yml"
-
-    if not compose_file.exists():
-        generate_wordpress_compose(site_name, domain)
-
-    project = _compose_project_name(site_name)
-
-    if settings.dev_mode:
-        log.info("[DEV] Would run docker compose up -d for site %s (project=%s)", site_name, project)
-        return f"[DEV] docker compose up -d for {site_name}", ""
-
-    result = subprocess.run(
-        [
-            "docker", "compose",
-            "-f", str(compose_file),
-            "-p", project,
-            "up", "-d", "--remove-orphans",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=300,
-        env={
-            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
-            "HOME": os.environ.get("HOME", "/root"),
-            "DOCKER_HOST": os.environ.get("DOCKER_HOST", ""),
-        },
+    from app.services.docker_api import (
+        create_or_get_network,
+        create_volume,
+        run_container,
     )
 
-    stdout = result.stdout.strip()
-    stderr = result.stderr.strip()
+    site_dir = site_project_dir(site_name)
+    compose_file = site_dir / "docker-compose.yml"
+    secrets_file = site_dir / ".secrets"
 
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"docker compose up failed (exit {result.returncode}):\n{stderr}"
+    # Ensure compose/secrets files exist (generated once; re-used on redeploy)
+    credentials: dict = {}
+    if not compose_file.exists():
+        _, credentials = generate_wordpress_compose(site_name, domain)
+    else:
+        # Re-read existing credentials from the secrets file
+        if secrets_file.exists():
+            for line in secrets_file.read_text().strip().splitlines():
+                k, _, v = line.partition("=")
+                credentials[k.strip()] = v.strip()
+        if not credentials:
+            # Regenerate if secrets file is missing or empty
+            _, credentials = generate_wordpress_compose(site_name, domain)
+
+    project = _compose_project_name(site_name)
+    wp_service = _wordpress_service_name(site_name)
+
+    if settings.dev_mode:
+        log.info(
+            "[DEV] Would deploy WordPress for site %s via Docker API (project=%s)",
+            site_name,
+            project,
         )
+        return f"[DEV] Docker API deploy for {site_name}", ""
 
-    log.info("Deployed WordPress site %s (project=%s)", site_name, project)
-    return stdout, stderr
+    # ── Networks ──────────────────────────────────────────────────────────────
+    # Internal bridge for WP ↔ DB communication (not reachable from outside)
+    internal_net = f"{project}_internal"
+    # External proxy network – must already exist (created by the main stack)
+    proxy_net = "linkhosting_proxy"
+
+    create_or_get_network(internal_net, driver="bridge", internal=True)
+    create_or_get_network(proxy_net, driver="bridge", internal=False)
+
+    # ── Volumes ───────────────────────────────────────────────────────────────
+    wp_content_vol = f"{project}_{site_name}-wp-content"
+    db_data_vol = f"{project}_{site_name}-db-data"
+
+    create_volume(wp_content_vol)
+    create_volume(db_data_vol)
+
+    # ── Container names (match docker-compose naming convention) ─────────────
+    db_container_name = f"{project}-db-1"
+    wp_container_name = f"{project}-{wp_service}-1"
+
+    db_name = credentials["db_name"]
+    db_user = credentials["db_user"]
+    db_password = credentials["db_password"]
+    db_root_password = credentials["db_root_password"]
+    table_prefix = credentials.get("table_prefix", "wp_")
+
+    common_labels = {
+        "linkhosting.site": site_name,
+        "linkhosting.domain": domain,
+        "linkhosting.type": "wordpress",
+    }
+
+    # ── MariaDB container (internal network only) ─────────────────────────────
+    run_container(
+        name=db_container_name,
+        image="mariadb:10.11",
+        environment={
+            "MARIADB_ROOT_PASSWORD": db_root_password,
+            "MARIADB_DATABASE": db_name,
+            "MARIADB_USER": db_user,
+            "MARIADB_PASSWORD": db_password,
+        },
+        volumes={db_data_vol: {"bind": "/var/lib/mysql", "mode": "rw"}},
+        network=internal_net,
+        labels=common_labels,
+    )
+
+    # ── WordPress container (internal + proxy networks) ───────────────────────
+    run_container(
+        name=wp_container_name,
+        image="wordpress:latest",
+        environment={
+            "WORDPRESS_DB_HOST": db_container_name,
+            "WORDPRESS_DB_USER": db_user,
+            "WORDPRESS_DB_PASSWORD": db_password,
+            "WORDPRESS_DB_NAME": db_name,
+            "WORDPRESS_TABLE_PREFIX": table_prefix,
+        },
+        volumes={wp_content_vol: {"bind": "/var/www/html/wp-content", "mode": "rw"}},
+        network=internal_net,
+        extra_networks=[proxy_net],
+        labels=common_labels,
+    )
+
+    log.info("Deployed WordPress site %s via Docker API (project=%s)", site_name, project)
+    return f"WordPress site {site_name} deployed via Docker API", ""
 
 
 def get_wordpress_container_name(site_name: str) -> str:
@@ -187,41 +252,21 @@ def get_wordpress_container_name(site_name: str) -> str:
 
 
 def stop_wordpress(site_name: str) -> tuple[str, str]:
-    """Stop a WordPress deployment using docker compose down."""
-    site_dir = site_project_dir(site_name)
-    compose_file = site_dir / "docker-compose.yml"
+    """Stop and remove WordPress deployment containers for *site_name*."""
+    if settings.dev_mode:
+        log.info("[DEV] Would stop WordPress containers for site %s", site_name)
+        return f"[DEV] Docker API stop for {site_name}", ""
 
-    if not compose_file.exists():
-        log.warning("No compose file found for site %s, nothing to stop", site_name)
-        return "", ""
+    from app.services.docker_api import stop_remove_containers
 
     project = _compose_project_name(site_name)
+    wp_service = _wordpress_service_name(site_name)
 
-    if settings.dev_mode:
-        log.info("[DEV] Would run docker compose down for site %s", site_name)
-        return f"[DEV] docker compose down for {site_name}", ""
+    containers = [
+        f"{project}-{wp_service}-1",
+        f"{project}-db-1",
+    ]
+    stop_remove_containers(containers)
 
-    result = subprocess.run(
-        [
-            "docker", "compose",
-            "-f", str(compose_file),
-            "-p", project,
-            "down",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
-        env={
-            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
-            "HOME": os.environ.get("HOME", "/root"),
-            "DOCKER_HOST": os.environ.get("DOCKER_HOST", ""),
-        },
-    )
-
-    stdout = result.stdout.strip()
-    stderr = result.stderr.strip()
-
-    if result.returncode != 0:
-        log.warning("docker compose down failed for %s: %s", site_name, stderr)
-
-    return stdout, stderr
+    log.info("Stopped WordPress containers for site %s", site_name)
+    return f"WordPress site {site_name} stopped", ""

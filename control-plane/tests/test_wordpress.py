@@ -97,9 +97,9 @@ def test_stop_wordpress_dev_mode(tmp_path, monkeypatch):
     from app.services import wordpress as wp_module
     importlib.reload(wp_module)
 
-    # No compose file — should return empty strings without raising
+    # In dev mode, stop should not raise and should return a DEV message
     stdout, stderr = wp_module.stop_wordpress("mysite")
-    assert stdout == ""
+    assert "DEV" in stdout
     assert stderr == ""
 
 
