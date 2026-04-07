@@ -164,16 +164,20 @@ if (-not $NonInteractive) {
     Write-Host ""
 }
 
-$DomainSuffix       = Prompt-Default "Internal domain suffix  (sites -> <name>.<suffix>)" "link"
-$ControlPlanePort   = Prompt-Default "Control-plane bind address (host:port)" "127.0.0.1:8000"
-$SftpPort           = Prompt-Default "SFTP host port" "2222"
+$DomainSuffix      = Prompt-Default "Internal domain suffix  (sites -> <name>.<suffix>)" "link"
+$PanelPort         = Prompt-Default "Control-plane bind address (host:port)" "127.0.0.1:8000"
+$SftpPort          = Prompt-Default "SFTP host port" "2222"
+
+# Generate session cookie signing key
+$SessionSecretKey  = Get-RandomHex 64
 
 # Write / update .env
 Set-EnvValue "DB_PASSWORD"        $DbPassword       $EnvFile
 Set-EnvValue "SITE_DB_PASSWORD"   $SiteDbPassword   $EnvFile
 Set-EnvValue "ADMIN_SECRET_KEY"   $AdminSecretKey   $EnvFile
+Set-EnvValue "SESSION_SECRET_KEY" $SessionSecretKey $EnvFile
 Set-EnvValue "DOMAIN_SUFFIX"      $DomainSuffix     $EnvFile
-Set-EnvValue "CONTROL_PLANE_PORT" $ControlPlanePort $EnvFile
+Set-EnvValue "PANEL_PORT"         $PanelPort        $EnvFile
 Set-EnvValue "SFTP_PORT"          $SftpPort         $EnvFile
 
 Write-Ok ".env written"
@@ -204,7 +208,7 @@ Write-Info "Starting LinkHosting stack (first run may take a few minutes)…"
 docker compose up -d --build
 
 # ── Health check ─────────────────────────────────────────────────────────────
-$bindAddr   = $ControlPlanePort
+$bindAddr   = $PanelPort
 $colonIdx   = $bindAddr.LastIndexOf(':')
 $healthHost = $bindAddr.Substring(0, $colonIdx)
 $healthPort = $bindAddr.Substring($colonIdx + 1)
