@@ -24,8 +24,8 @@
             <tr>
                 <td><a href="/panel/sites/{{ site.name }}">{{ site.name }}</a></td>
                 <td><span class="text-muted">{{ site.domain }}</span></td>
-                <td>{{ site.site_type }}</td>
-                <td><span class="badge badge-{{ site.status }}">{{ site.status }}</span></td>
+                <td>{{ site.site_type.value }}</td>
+                <td><span class="badge badge-{{ site.status.value }}">{{ site.status.value }}</span></td>
                 <td class="text-muted">{{ site.created_at.strftime('%Y-%m-%d') }}</td>
                 <td><a href="/panel/sites/{{ site.name }}" class="btn btn-secondary" style="font-size:0.8rem; padding:0.25rem 0.6rem;">Details →</a></td>
             </tr>
