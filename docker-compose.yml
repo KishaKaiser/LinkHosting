@@ -96,7 +96,7 @@ services:
       REDIS_URL:           redis://redis:6379/0
       DEV_MODE:            ${DEV_MODE:-false}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - sites_data:/srv/linkhosting/sites
       - certs_data:/data/certs
       - sftp_data:/data/sftp
@@ -132,7 +132,7 @@ services:
       REDIS_URL:           redis://redis:6379/0
       DEV_MODE:            ${DEV_MODE:-false}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - sites_data:/srv/linkhosting/sites
       - proxy_conf:/data/proxy/conf.d
     networks:

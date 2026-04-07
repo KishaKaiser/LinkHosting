@@ -177,6 +177,12 @@ if [[ "$NON_INTERACTIVE" != "true" ]]; then
 fi
 
 prompt DOMAIN_SUFFIX "Internal domain suffix  (sites → <name>.<suffix>)" "link"
+echo ""
+echo -e "  ${BOLD}Panel bind address:${RESET}"
+echo -e "  • ${CYAN}127.0.0.1:8000${RESET}  (default) — accessible only from this machine"
+echo -e "  • ${CYAN}0.0.0.0:8000${RESET}   — accessible from any host on your LAN"
+echo -e "  ${YELLOW}⚠  Use 0.0.0.0 only on trusted networks.${RESET}"
+echo ""
 prompt PANEL_PORT   "Control-plane bind address (host:port)" "127.0.0.1:8000"
 prompt SFTP_PORT    "SFTP host port" "2222"
 
@@ -233,6 +239,34 @@ echo ""
 echo "────────────────────────────────────────────────────────────────"
 info "Starting LinkHosting stack (first run may take a few minutes)..."
 "${DOCKER_COMPOSE[@]}" up -d --build
+
+# ── Worker readiness check ────────────────────────────────────────────────────
+echo ""
+info "Verifying worker container readiness…"
+WORKER_OK=false
+WORKER_MAX_WAIT=30; WORKER_WAITED=0
+until "${DOCKER_COMPOSE[@]}" ps worker 2>/dev/null | grep -q "running\|Up"; do
+  sleep 3; WORKER_WAITED=$((WORKER_WAITED + 3))
+  if [[ $WORKER_WAITED -ge $WORKER_MAX_WAIT ]]; then
+    break
+  fi
+done
+
+if "${DOCKER_COMPOSE[@]}" ps worker 2>/dev/null | grep -q "running\|Up"; then
+  # Verify the worker can reach the Docker socket via the SDK
+  if "${DOCKER_COMPOSE[@]}" exec -T worker \
+      python -c "import docker; docker.DockerClient(base_url='unix:///var/run/docker.sock').ping()" \
+      2>/dev/null; then
+    ok "Worker is running and can reach the Docker socket ✔"
+    WORKER_OK=true
+  else
+    warn "Worker is running but cannot reach the Docker socket."
+    warn "Check that /var/run/docker.sock is mounted and the socket is accessible."
+  fi
+else
+  warn "Worker container did not start within ${WORKER_MAX_WAIT}s."
+  warn "Run '${DOCKER_COMPOSE[*]} logs worker' to see the error."
+fi
 
 # ── Health check ─────────────────────────────────────────────────────────────
 BIND_ADDR="${PANEL_PORT:-127.0.0.1:8000}"

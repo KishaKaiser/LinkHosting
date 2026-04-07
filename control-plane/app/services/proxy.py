@@ -107,22 +107,15 @@ def remove_vhost(site_name: str) -> None:
 
 
 def reload_proxy() -> None:
-    """Signal Nginx to reload its configuration."""
+    """Signal Nginx to reload its configuration via the Docker Engine API."""
     if settings.dev_mode:
         log.info("[DEV] Would reload nginx")
         return
 
-    import subprocess
-    try:
-        result = subprocess.run(
-            ["docker", "exec", "proxy", "nginx", "-s", "reload"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            log.warning("nginx reload stderr: %s", result.stderr)
-        else:
-            log.info("Nginx reloaded")
-    except Exception as exc:
-        log.error("Failed to reload nginx: %s", exc)
+    from app.services.docker_api import exec_in_container
+
+    exit_code, output = exec_in_container("lh-proxy", ["nginx", "-s", "reload"])
+    if exit_code != 0:
+        log.warning("nginx reload failed (exit %d): %s", exit_code, output)
+    else:
+        log.info("Nginx reloaded")
