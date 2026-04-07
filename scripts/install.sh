@@ -176,16 +176,20 @@ if [[ "$NON_INTERACTIVE" != "true" ]]; then
   echo ""
 fi
 
-prompt DOMAIN_SUFFIX      "Internal domain suffix  (sites → <name>.<suffix>)" "link"
-prompt CONTROL_PLANE_PORT "Control-plane bind address (host:port)" "127.0.0.1:8000"
-prompt SFTP_PORT          "SFTP host port" "2222"
+prompt DOMAIN_SUFFIX "Internal domain suffix  (sites → <name>.<suffix>)" "link"
+prompt PANEL_PORT   "Control-plane bind address (host:port)" "127.0.0.1:8000"
+prompt SFTP_PORT    "SFTP host port" "2222"
+
+# Generate session cookie signing key
+SESSION_SECRET_KEY="$(openssl rand -hex 64)"
 
 # Write / update .env
 set_env DB_PASSWORD        "$DB_PASSWORD"
 set_env SITE_DB_PASSWORD   "$SITE_DB_PASSWORD"
 set_env ADMIN_SECRET_KEY   "$ADMIN_SECRET_KEY"
+set_env SESSION_SECRET_KEY "$SESSION_SECRET_KEY"
 set_env DOMAIN_SUFFIX      "$DOMAIN_SUFFIX"
-set_env CONTROL_PLANE_PORT "$CONTROL_PLANE_PORT"
+set_env PANEL_PORT         "$PANEL_PORT"
 set_env SFTP_PORT          "$SFTP_PORT"
 
 ok ".env written"
@@ -231,7 +235,7 @@ info "Starting LinkHosting stack (first run may take a few minutes)..."
 "${DOCKER_COMPOSE[@]}" up -d --build
 
 # ── Health check ─────────────────────────────────────────────────────────────
-BIND_ADDR="${CONTROL_PLANE_PORT:-127.0.0.1:8000}"
+BIND_ADDR="${PANEL_PORT:-127.0.0.1:8000}"
 HEALTH_HOST="${BIND_ADDR%:*}"
 HEALTH_PORT="${BIND_ADDR##*:}"
 [[ "$HEALTH_HOST" == "0.0.0.0" ]] && HEALTH_HOST="127.0.0.1"

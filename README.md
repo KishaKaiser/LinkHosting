@@ -132,23 +132,33 @@ Visit `http://myblog.link` to see your WordPress installation.
 ### 5. Deploy other site types (CLI / API)
 
 ```bash
+# The Python CLI tool reads ADMIN_SECRET_KEY from .env automatically.
+# All commands below can also be run as the equivalent .sh wrapper.
+
 # Create a static site
-./scripts/create-site.sh mysite static
+python3 scripts/lh.py create-site mysite static
 
 # Or create a site by importing a GitHub repository (type auto-detected)
-./scripts/create-site.sh myapp node --github https://github.com/owner/myapp
+python3 scripts/lh.py create-site myapp node --github https://github.com/owner/myapp
 
 # Deploy it (starts Docker container + writes Nginx vhost)
-./scripts/deploy-site.sh mysite
+python3 scripts/lh.py deploy mysite
 
 # Issue TLS certificate
-./scripts/create-cert.sh mysite
+python3 scripts/lh.py cert mysite
 
 # Create a database
-./scripts/create-db.sh mysite postgres    # ← save the password!
+python3 scripts/lh.py create-db mysite postgres    # ← save the password!
 
 # Create SFTP access
-./scripts/create-sftp.sh mysite           # ← save the password!
+python3 scripts/lh.py create-sftp mysite           # ← save the password!
+
+# Legacy .sh wrappers (delegate to lh.py):
+./scripts/create-site.sh mysite static
+./scripts/deploy-site.sh mysite
+./scripts/create-cert.sh mysite
+./scripts/create-db.sh mysite postgres
+./scripts/create-sftp.sh mysite
 ```
 
 ### 6. Add DNS
