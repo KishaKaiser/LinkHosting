@@ -24,6 +24,12 @@
         {% endif %}
         <tr><th>Created</th><td>{{ site.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
         <tr><th>Updated</th><td>{{ site.updated_at.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
+        {% if site.git_repo %}
+        <tr><th>Git Repo</th><td><a href="{{ site.git_repo }}" target="_blank" rel="noopener">{{ site.git_repo }}</a></td></tr>
+        {% endif %}
+        {% if site.git_branch %}
+        <tr><th>Git Branch</th><td><code>{{ site.git_branch }}</code></td></tr>
+        {% endif %}
     </table>
 </div>
 

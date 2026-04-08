@@ -106,8 +106,10 @@ async def create_site_page(request: Request):
 async def create_site_post(
     request: Request,
     name: str = Form(...),
-    site_type: str = Form(...),
+    site_type: str = Form(""),
     domain: str = Form(""),
+    git_repo: str = Form(""),
+    git_branch: str = Form(""),
     db: Session = Depends(get_db),
 ):
     redirect = _require_login(request)
@@ -116,7 +118,13 @@ async def create_site_post(
 
     import re
 
-    form = {"name": name, "site_type": site_type, "domain": domain}
+    form = {
+        "name": name,
+        "site_type": site_type,
+        "domain": domain,
+        "git_repo": git_repo,
+        "git_branch": git_branch,
+    }
 
     # Validate name
     if not re.match(r"^[a-z0-9][a-z0-9\-]{0,62}$", name):
@@ -131,15 +139,31 @@ async def create_site_post(
             status_code=422,
         )
 
-    # Validate type
-    try:
-        site_type_enum = SiteType(site_type)
-    except ValueError:
+    # Validate / resolve site type
+    git_repo = git_repo.strip()
+    git_branch = git_branch.strip() or None
+    site_type_enum = None
+
+    if site_type:
+        try:
+            site_type_enum = SiteType(site_type)
+        except ValueError:
+            return templates.TemplateResponse(
+                request,
+                "create_site.html",
+                {
+                    "error": f"Unknown site type: {site_type}",
+                    "form": form,
+                    "domain_suffix": settings.domain_suffix,
+                },
+                status_code=422,
+            )
+    elif not git_repo:
         return templates.TemplateResponse(
             request,
             "create_site.html",
             {
-                "error": f"Unknown site type: {site_type}",
+                "error": "Site type is required when no Git repository URL is provided.",
                 "form": form,
                 "domain_suffix": settings.domain_suffix,
             },
@@ -166,11 +190,52 @@ async def create_site_post(
             status_code=409,
         )
 
+    # Clone git repository if provided
+    if git_repo:
+        from pathlib import Path
+        from app.services.github import clone_repo, detect_site_type, _validate_github_url
+
+        try:
+            git_repo = _validate_github_url(git_repo)
+        except ValueError as exc:
+            return templates.TemplateResponse(
+                request,
+                "create_site.html",
+                {
+                    "error": f"Invalid Git repository URL: {exc}",
+                    "form": form,
+                    "domain_suffix": settings.domain_suffix,
+                },
+                status_code=422,
+            )
+
+        site_dir = Path(settings.sites_base_dir) / name
+        try:
+            clone_repo(git_repo, site_dir, branch=git_branch)
+        except Exception as exc:
+            log.exception("UI: Git clone failed for site %s", name)
+            return templates.TemplateResponse(
+                request,
+                "create_site.html",
+                {
+                    "error": f"Git clone failed: {exc}",
+                    "form": form,
+                    "domain_suffix": settings.domain_suffix,
+                },
+                status_code=422,
+            )
+
+        if site_type_enum is None:
+            site_type_enum = detect_site_type(site_dir)
+            log.info("UI: Auto-detected site type %s for %s", site_type_enum, name)
+
     site = Site(
         name=name,
         domain=final_domain,
         site_type=site_type_enum,
         status=SiteStatus.pending,
+        git_repo=git_repo or None,
+        git_branch=git_branch,
     )
     db.add(site)
     db.commit()
@@ -344,3 +409,69 @@ async def delete_site_ui(request: Request, site_name: str, db: Session = Depends
     db.delete(site)
     db.commit()
     return RedirectResponse("/panel/", status_code=302)
+
+
+# ── Settings / password change ────────────────────────────────────────────────
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    message = request.session.pop("flash_message", None)
+    error = request.session.pop("flash_error", None)
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        {"message": message, "error": error},
+    )
+
+
+@router.post("/settings/change-password")
+async def change_password_post(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+):
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    def _render_error(msg: str):
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            {"message": None, "error": msg},
+            status_code=422,
+        )
+
+    if not secrets.compare_digest(current_password, settings.admin_secret_key):
+        return _render_error("Current password is incorrect.")
+
+    if new_password != confirm_password:
+        return _render_error("New password and confirmation do not match.")
+
+    if len(new_password) < 12:
+        return _render_error("New password must be at least 12 characters.")
+
+    # Update in-memory setting (takes effect immediately for all requests)
+    settings.admin_secret_key = new_password
+
+    # Persist to override file so the new key survives container restarts
+    import pathlib, os
+    override_path = pathlib.Path(settings.admin_key_override_file)
+    try:
+        override_path.parent.mkdir(parents=True, exist_ok=True)
+        override_path.write_text(new_password)
+        os.chmod(override_path, 0o600)
+        log.info("Admin key override written to %s", override_path)
+    except OSError as exc:
+        log.warning("Could not persist admin key to %s: %s", override_path, exc)
+
+    log.info("Admin password changed via web UI")
+    request.session["flash_message"] = (
+        "Password updated successfully. Use the new password on your next login."
+    )
+    return RedirectResponse("/panel/settings", status_code=302)

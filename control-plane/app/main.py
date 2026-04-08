@@ -25,6 +25,16 @@ log = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Create tables on startup (production should use Alembic migrations)
     Base.metadata.create_all(bind=engine)
+
+    # Load persisted admin key override (written by the password-change UI)
+    import pathlib
+    override_file = pathlib.Path(settings.admin_key_override_file)
+    if override_file.exists():
+        key = override_file.read_text().strip()
+        if key:
+            settings.admin_secret_key = key
+            log.info("Loaded admin key override from %s", override_file)
+
     log.info(
         "LinkHosting control-plane started (dev_mode=%s)", settings.dev_mode
     )

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Settings — LinkHosting{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+
+{% if message %}
+<div class="alert alert-success">{{ message }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="max-width: 480px;">
+    <h2>Change Admin Password</h2>
+    <p class="text-muted" style="margin-bottom: 1rem;">
+        Update the admin password used to log in to the control panel and authenticate API requests.
+        The change takes effect immediately. It is also saved to
+        <code>/data/admin_secret_key</code> (mode 600) so it survives container restarts.
+        Keep that file secure and back it up if needed.
+    </p>
+    <form method="post" action="/panel/settings/change-password">
+        <div class="form-group">
+            <label for="current_password">Current Password <span style="color:#c0392b">*</span></label>
+            <input type="password" id="current_password" name="current_password" required autocomplete="current-password" />
+        </div>
+        <div class="form-group">
+            <label for="new_password">New Password <span style="color:#c0392b">*</span></label>
+            <input type="password" id="new_password" name="new_password" required autocomplete="new-password"
+                   minlength="12" />
+            <p class="text-muted mt-1">Minimum 12 characters.</p>
+        </div>
+        <div class="form-group">
+            <label for="confirm_password">Confirm New Password <span style="color:#c0392b">*</span></label>
+            <input type="password" id="confirm_password" name="confirm_password" required autocomplete="new-password" />
+        </div>
+        <div class="flex mt-1">
+            <button type="submit" class="btn btn-primary">Update Password</button>
+            <a href="/panel/" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

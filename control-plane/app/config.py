@@ -40,5 +40,8 @@ class Settings(BaseSettings):
     dns_hosts_file: str = "/data/dns/hosts"
     dns_container_name: str = "lh-dns"
 
+    # Persistent admin key override (written by the password-change UI)
+    admin_key_override_file: str = "/data/admin_secret_key"
+
 
 settings = Settings()
