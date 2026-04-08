@@ -95,12 +95,17 @@ services:
       DOMAIN_SUFFIX:       ${DOMAIN_SUFFIX:-local}
       REDIS_URL:           redis://redis:6379/0
       DEV_MODE:            ${DEV_MODE:-false}
+      DNS_ENABLED:         ${DNS_ENABLED:-true}
+      HOST_LAN_IP:         ${HOST_LAN_IP:-}
+      DNS_HOSTS_FILE:      /data/dns/hosts
+      DNS_CONTAINER_NAME:  lh-dns
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - sites_data:/srv/linkhosting/sites
       - certs_data:/data/certs
       - sftp_data:/data/sftp
       - proxy_conf:/data/proxy/conf.d
+      - dns_hosts:/data/dns
     networks:
       - backend
       - proxy
@@ -131,12 +136,35 @@ services:
       DOMAIN_SUFFIX:       ${DOMAIN_SUFFIX:-local}
       REDIS_URL:           redis://redis:6379/0
       DEV_MODE:            ${DEV_MODE:-false}
+      DNS_ENABLED:         ${DNS_ENABLED:-true}
+      HOST_LAN_IP:         ${HOST_LAN_IP:-}
+      DNS_HOSTS_FILE:      /data/dns/hosts
+      DNS_CONTAINER_NAME:  lh-dns
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - sites_data:/srv/linkhosting/sites
       - proxy_conf:/data/proxy/conf.d
+      - dns_hosts:/data/dns
     networks:
       - backend
+    logging: *default-logging
+
+  # ── CoreDNS (internal DNS server) ─────────────────────────────────────────
+  dns:
+    image: coredns/coredns:1.11.3
+    container_name: lh-dns
+    restart: unless-stopped
+    command: ["-conf", "/etc/coredns/Corefile"]
+    environment:
+      DOMAIN_SUFFIX: ${DOMAIN_SUFFIX:-link}
+    volumes:
+      - ./dns/Corefile:/etc/coredns/Corefile:ro
+      - dns_hosts:/data/dns
+    networks:
+      - proxy
+    ports:
+      - "${DNS_LISTEN_ADDR:-0.0.0.0}:53:53/udp"
+      - "${DNS_LISTEN_ADDR:-0.0.0.0}:53:53/tcp"
     logging: *default-logging
 
   # ── Nginx Reverse Proxy ────────────────────────────────────────────────────
@@ -182,6 +210,7 @@ volumes:
   certs_data:
   sftp_data:
   proxy_conf:
+  dns_hosts:
 
 networks:
   backend:

@@ -129,6 +129,7 @@ def delete_site(site_name: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Site not found")
 
     from app.services.proxy import remove_vhost, reload_proxy
+    from app.services.dns import remove_dns_record
 
     if site.site_type == SiteType.wordpress:
         from app.services.wordpress import stop_wordpress
@@ -139,6 +140,7 @@ def delete_site(site_name: str, db: Session = Depends(get_db)):
 
     remove_vhost(site.name)
     reload_proxy()
+    remove_dns_record(site.domain)
 
     db.delete(site)
     db.commit()
@@ -171,6 +173,9 @@ def deploy_site(site_name: str, db: Session = Depends(get_db)):
 
         write_vhost(site, tls=tls)
         reload_proxy()
+
+        from app.services.dns import add_dns_record
+        add_dns_record(site.domain)
 
         db.refresh(site)
     except Exception as exc:
@@ -233,6 +238,10 @@ def _run_deploy_inline(job_record: DeployJob, site: Site, db: Session) -> None:
         log_lines.append(f"Wrote nginx vhost for {site.domain}")
         reload_proxy()
         log_lines.append("Nginx reloaded")
+
+        from app.services.dns import add_dns_record
+        add_dns_record(site.domain)
+        log_lines.append(f"Added DNS record for {site.domain}")
 
         from app.services.wordpress import get_wordpress_container_name
         site.container_id = get_wordpress_container_name(site.name)

@@ -144,3 +144,15 @@ def exec_in_container(container_name: str, cmd: list) -> tuple[int, str]:
     except Exception as exc:
         log.error("exec_in_container failed for %s: %s", container_name, exc)
         return 1, str(exc)
+
+
+def signal_container(container_name: str, signal: str = "SIGHUP") -> None:
+    """Send a Unix signal to PID 1 inside the named container."""
+    client = _client()
+    try:
+        container = client.containers.get(container_name)
+        container.kill(signal=signal)
+        log.info("Sent %s to container %s", signal, container_name)
+    except Exception as exc:
+        log.error("signal_container failed for %s: %s", container_name, exc)
+        raise

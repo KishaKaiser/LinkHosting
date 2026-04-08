@@ -34,6 +34,7 @@ def run_wordpress_deploy(job_id: int) -> None:
     from app.models import DeployJob, JobStatus, Site, SiteStatus
     from app.services.wordpress import deploy_wordpress, generate_wordpress_compose
     from app.services.proxy import write_vhost, reload_proxy
+    from app.services.dns import add_dns_record
 
     engine = create_engine(settings.database_url, pool_pre_ping=True,
                            connect_args={"check_same_thread": False}
@@ -78,7 +79,11 @@ def run_wordpress_deploy(job_id: int) -> None:
             reload_proxy()
             log_lines.append("Nginx reloaded")
 
-            # 4. Update site status
+            # 4. Add DNS record
+            add_dns_record(site.domain)
+            log_lines.append(f"Added DNS record for {site.domain}")
+
+            # 5. Update site status
             from app.services.wordpress import get_wordpress_container_name
             site.container_id = get_wordpress_container_name(site.name)
             site.status = SiteStatus.running
