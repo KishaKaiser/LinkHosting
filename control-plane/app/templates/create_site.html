@@ -19,9 +19,9 @@
         </div>
 
         <div class="form-group">
-            <label for="site_type">Site Type <span style="color:#c0392b">*</span></label>
-            <select id="site_type" name="site_type" required>
-                <option value="">— select —</option>
+            <label for="site_type">Site Type</label>
+            <select id="site_type" name="site_type">
+                <option value="">— auto-detect from repo —</option>
                 <option value="wordpress" {% if form.site_type == 'wordpress' %}selected{% endif %}>WordPress (docker-compose)</option>
                 <option value="static"    {% if form.site_type == 'static'    %}selected{% endif %}>Static</option>
                 <option value="php"       {% if form.site_type == 'php'       %}selected{% endif %}>PHP</option>
@@ -29,6 +29,22 @@
                 <option value="python"    {% if form.site_type == 'python'    %}selected{% endif %}>Python</option>
                 <option value="proxy"     {% if form.site_type == 'proxy'     %}selected{% endif %}>Reverse Proxy</option>
             </select>
+            <p class="text-muted mt-1">Required unless a Git Repository URL is provided (auto-detected from repo contents).</p>
+        </div>
+
+        <div class="form-group">
+            <label for="git_repo">Git Repository URL</label>
+            <input type="text" id="git_repo" name="git_repo"
+                   placeholder="https://github.com/owner/repo"
+                   value="{{ form.git_repo or '' }}" />
+            <p class="text-muted mt-1">Optional. Clone a GitHub repository into the site directory on creation.</p>
+        </div>
+
+        <div class="form-group">
+            <label for="git_branch">Git Branch</label>
+            <input type="text" id="git_branch" name="git_branch"
+                   placeholder="main (leave blank for default)"
+                   value="{{ form.git_branch or '' }}" />
         </div>
 
         <div class="form-group">
