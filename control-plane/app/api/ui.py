@@ -460,11 +460,12 @@ async def change_password_post(
     settings.admin_secret_key = new_password
 
     # Persist to override file so the new key survives container restarts
-    import pathlib
+    import pathlib, os
     override_path = pathlib.Path(settings.admin_key_override_file)
     try:
         override_path.parent.mkdir(parents=True, exist_ok=True)
         override_path.write_text(new_password)
+        os.chmod(override_path, 0o600)
         log.info("Admin key override written to %s", override_path)
     except OSError as exc:
         log.warning("Could not persist admin key to %s: %s", override_path, exc)
