@@ -16,7 +16,7 @@ server {{
     server_name {domain};
 
     location / {{
-        proxy_pass http://site-{name}:{port};
+        proxy_pass http://{upstream}:{port};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -37,13 +37,13 @@ server {{
     listen 443 ssl;
     server_name {domain};
 
-    ssl_certificate     /etc/nginx/certs/{name}/cert.pem;
-    ssl_certificate_key /etc/nginx/certs/{name}/key.pem;
+    ssl_certificate     /etc/nginx/certs/{site_name}/cert.pem;
+    ssl_certificate_key /etc/nginx/certs/{site_name}/key.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_ciphers         HIGH:!aNULL:!MD5;
 
     location / {{
-        proxy_pass http://site-{name}:{port};
+        proxy_pass http://{upstream}:{port};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -67,12 +67,17 @@ def _container_port(site: Site) -> int:
 
 
 def _upstream_name(site: Site) -> str:
-    """Return the upstream hostname for nginx proxy_pass."""
+    """Return the upstream hostname for nginx proxy_pass.
+
+    For WordPress sites this is the fully-qualified Docker container name
+    (``<project>-<service>-1``) which Docker's embedded DNS resolves reliably
+    within the ``linkhosting_proxy`` network.  For all other site types the
+    conventional ``site-<name>`` hostname is used.
+    """
     from app.models import SiteType
     if site.site_type == SiteType.wordpress:
-        # WordPress service is named via _wordpress_service_name in the per-site compose project
-        from app.services.wordpress import _wordpress_service_name
-        return _wordpress_service_name(site.name)
+        from app.services.wordpress import get_wordpress_container_name
+        return get_wordpress_container_name(site.name)
     return f"site-{site.name}"
 
 
@@ -84,7 +89,7 @@ def write_vhost(site: Site, tls: bool = False) -> Path:
     port = _container_port(site)
     upstream = _upstream_name(site)
     template = VHOST_TEMPLATE_HTTPS if tls else VHOST_TEMPLATE_HTTP
-    content = template.format(name=upstream, domain=site.domain, port=port)
+    content = template.format(site_name=site.name, upstream=upstream, domain=site.domain, port=port)
 
     if settings.dev_mode:
         log.info("[DEV] Would write vhost config to %s:\n%s", conf_path, content)
