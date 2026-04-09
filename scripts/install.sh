@@ -110,17 +110,106 @@ fi
 info "Repo root: $REPO_ROOT"
 cd "$REPO_ROOT"
 
-# ── Check prerequisites ───────────────────────────────────────────────────────
+# ── Dependency installers ─────────────────────────────────────────────────────
+
+install_docker_linux() {
+  info "Docker not found — installing Docker Engine via get.docker.com…"
+  warn "The official Docker install script will be downloaded and executed as root."
+  warn "Review it at https://get.docker.com before proceeding."
+  if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
+    die "Neither curl nor wget is available. Install one and re-run."
+  fi
+  if command -v curl &>/dev/null; then
+    curl -fsSL https://get.docker.com | sh
+  else
+    wget -qO- https://get.docker.com | sh
+  fi
+  # Add current user to the docker group so non-root use works after re-login
+  if ! id -nG "$USER" 2>/dev/null | grep -qw 'docker'; then
+    sudo usermod -aG docker "$USER" 2>/dev/null || true
+    warn "Added $USER to the 'docker' group. You may need to log out and back in."
+  fi
+  # Start and enable the Docker daemon
+  if command -v systemctl &>/dev/null; then
+    sudo systemctl enable --now docker 2>/dev/null || true
+  fi
+  ok "Docker Engine installed."
+}
+
+install_docker_macos() {
+  if command -v brew &>/dev/null; then
+    info "Docker not found — installing Docker Desktop via Homebrew…"
+    brew install --cask docker
+    ok "Docker Desktop installed. Please open Docker.app to finish setup."
+    warn "Re-run this installer once the Docker daemon is running."
+    exit 0
+  else
+    die "Docker not found and Homebrew is not available.\n" \
+        "  Install Docker Desktop from https://docs.docker.com/desktop/install/mac-install/\n" \
+        "  then re-run this installer."
+  fi
+}
+
+install_openssl_linux() {
+  info "OpenSSL not found — attempting to install…"
+  if command -v apt-get &>/dev/null; then
+    sudo apt-get install -y openssl
+  elif command -v yum &>/dev/null; then
+    sudo yum install -y openssl
+  elif command -v dnf &>/dev/null; then
+    sudo dnf install -y openssl
+  elif command -v apk &>/dev/null; then
+    sudo apk add --no-cache openssl
+  else
+    die "Cannot install OpenSSL automatically. Install it via your package manager and re-run."
+  fi
+  ok "OpenSSL installed."
+}
+
+install_curl_linux() {
+  info "curl not found — attempting to install…"
+  if command -v apt-get &>/dev/null; then
+    sudo apt-get install -y curl
+  elif command -v yum &>/dev/null; then
+    sudo yum install -y curl
+  elif command -v dnf &>/dev/null; then
+    sudo dnf install -y curl
+  elif command -v apk &>/dev/null; then
+    sudo apk add --no-cache curl
+  else
+    warn "Cannot install curl automatically. Skipping post-install health check."
+  fi
+}
+
+# ── Check / install prerequisites ────────────────────────────────────────────
 echo ""
 info "Checking prerequisites…"
 PREREQ_OK=true
 
 # Docker engine
-if ! check_cmd docker "Docker" \
-    "Install from https://docs.docker.com/get-docker/"; then
-  PREREQ_OK=false
-elif ! docker info &>/dev/null 2>&1; then
-  echo -e "${RED}[FAIL]${RESET}  Docker daemon is not running.  Start Docker and re-run." >&2
+if ! command -v docker &>/dev/null; then
+  if [[ "$PLATFORM" == "linux" ]]; then
+    install_docker_linux
+  elif [[ "$PLATFORM" == "macos" ]]; then
+    install_docker_macos
+  else
+    PREREQ_OK=false
+  fi
+fi
+
+if command -v docker &>/dev/null; then
+  ok "Docker → $(command -v docker)"
+  if ! docker info &>/dev/null 2>&1; then
+    echo -e "${RED}[FAIL]${RESET}  Docker daemon is not running." >&2
+    if [[ "$PLATFORM" == "linux" ]] && command -v systemctl &>/dev/null; then
+      info "Attempting to start Docker daemon…"
+      sudo systemctl start docker && ok "Docker daemon started." || PREREQ_OK=false
+    else
+      echo -e "  Start Docker and re-run." >&2
+      PREREQ_OK=false
+    fi
+  fi
+else
   PREREQ_OK=false
 fi
 
@@ -133,20 +222,53 @@ elif command -v docker-compose &>/dev/null; then
   ok "docker-compose (standalone)"
   DOCKER_COMPOSE=(docker-compose)
 else
-  echo -e "${RED}[MISS]${RESET}  docker compose not found." \
-    " Install the Compose plugin: https://docs.docker.com/compose/install/" >&2
-  PREREQ_OK=false
-  DOCKER_COMPOSE=(docker compose)   # placeholder so -u doesn't error later
+  # Attempt to install the compose plugin on Linux
+  if [[ "$PLATFORM" == "linux" ]]; then
+    info "docker compose plugin not found — attempting to install…"
+    if command -v apt-get &>/dev/null; then
+      sudo apt-get install -y docker-compose-plugin 2>/dev/null || true
+    elif command -v yum &>/dev/null; then
+      sudo yum install -y docker-compose-plugin 2>/dev/null || true
+    elif command -v dnf &>/dev/null; then
+      sudo dnf install -y docker-compose-plugin 2>/dev/null || true
+    fi
+  fi
+  if docker compose version &>/dev/null 2>&1; then
+    ok "docker compose (plugin v2)"
+    DOCKER_COMPOSE=(docker compose)
+  else
+    echo -e "${RED}[MISS]${RESET}  docker compose not found." \
+      " Install the Compose plugin: https://docs.docker.com/compose/install/" >&2
+    PREREQ_OK=false
+    DOCKER_COMPOSE=(docker compose)   # placeholder so -u doesn't error later
+  fi
 fi
 
 # openssl — required for secret generation
-if ! check_cmd openssl "OpenSSL" \
-    "Install via your package manager (apt/brew install openssl)."; then
+if ! command -v openssl &>/dev/null; then
+  if [[ "$PLATFORM" == "linux" ]]; then
+    install_openssl_linux
+  elif [[ "$PLATFORM" == "macos" ]] && command -v brew &>/dev/null; then
+    brew install openssl
+  else
+    echo -e "${RED}[MISS]${RESET}  OpenSSL not found." \
+      " Install via your package manager (apt/brew install openssl)." >&2
+    PREREQ_OK=false
+  fi
+fi
+if command -v openssl &>/dev/null; then
+  ok "OpenSSL → $(command -v openssl)"
+else
   PREREQ_OK=false
 fi
 
 # curl — optional; used only for the post-install health check
-check_cmd curl "curl" "Install via your package manager." || \
+if ! command -v curl &>/dev/null; then
+  if [[ "$PLATFORM" == "linux" ]]; then
+    install_curl_linux
+  fi
+fi
+command -v curl &>/dev/null && ok "curl → $(command -v curl)" || \
   warn "curl not found; post-install health check will be skipped."
 
 # git — optional; needed only for the GitHub-import feature
@@ -179,11 +301,11 @@ fi
 prompt DOMAIN_SUFFIX "Internal domain suffix  (sites → <name>.<suffix>)" "link"
 echo ""
 echo -e "  ${BOLD}Panel bind address:${RESET}"
-echo -e "  • ${CYAN}127.0.0.1:8000${RESET}  (default) — accessible only from this machine"
-echo -e "  • ${CYAN}0.0.0.0:8000${RESET}   — accessible from any host on your LAN"
+echo -e "  • ${CYAN}0.0.0.0:8000${RESET}   (default) — accessible from any host on your LAN"
+echo -e "  • ${CYAN}127.0.0.1:8000${RESET}  — accessible only from this machine"
 echo -e "  ${YELLOW}⚠  Use 0.0.0.0 only on trusted networks.${RESET}"
 echo ""
-prompt PANEL_PORT   "Control-plane bind address (host:port)" "127.0.0.1:8000"
+prompt PANEL_PORT   "Control-plane bind address (host:port)" "0.0.0.0:8000"
 prompt SFTP_PORT    "SFTP host port" "2222"
 
 # Generate session cookie signing key

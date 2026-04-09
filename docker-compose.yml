@@ -110,7 +110,7 @@ services:
       - backend
       - proxy
     ports:
-      - "${PANEL_PORT:-127.0.0.1:8000}:8000"
+      - "${PANEL_PORT:-0.0.0.0:8000}:8000"
     logging: *default-logging
 
   # ── RQ Worker (background deploy jobs) ────────────────────────────────────
@@ -177,8 +177,8 @@ services:
     depends_on:
       - panel
     volumes:
-      - proxy_conf:/etc/nginx/conf.d:ro
-      - certs_data:/etc/nginx/certs:ro
+      - proxy_conf:/etc/nginx/conf.d
+      - certs_data:/etc/nginx/certs
     networks:
       - proxy
       - sites
