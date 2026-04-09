@@ -114,6 +114,8 @@ cd "$REPO_ROOT"
 
 install_docker_linux() {
   info "Docker not found — installing Docker Engine via get.docker.com…"
+  warn "The official Docker install script will be downloaded and executed as root."
+  warn "Review it at https://get.docker.com before proceeding."
   if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
     die "Neither curl nor wget is available. Install one and re-run."
   fi
@@ -123,7 +125,7 @@ install_docker_linux() {
     wget -qO- https://get.docker.com | sh
   fi
   # Add current user to the docker group so non-root use works after re-login
-  if id -nG "$USER" 2>/dev/null | grep -qv '\bdocker\b'; then
+  if ! id -nG "$USER" 2>/dev/null | grep -qw 'docker'; then
     sudo usermod -aG docker "$USER" 2>/dev/null || true
     warn "Added $USER to the 'docker' group. You may need to log out and back in."
   fi
