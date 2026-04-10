@@ -46,7 +46,8 @@ It provisions isolated Docker containers per site, routes traffic via Nginx, man
 ### Nginx Reverse Proxy (`proxy/`)
 - Single Nginx instance on the host
 - Reads per-site vhost configs from `/data/proxy/conf.d/`
-- Each site config routes `sitename.local` → `http://site-<name>:<port>`
+- Each non-WordPress site config routes `<name>.<domain>` → `http://site-<name>:<port>`
+- WordPress sites use the Docker container name as the upstream target (see below)
 - TLS termination using certs from `/data/certs/<sitename>/`
 
 ### Internal CA
@@ -63,9 +64,17 @@ It provisions isolated Docker containers per site, routes traffic via Nginx, man
 
 ### Site Containers
 - One Docker container per site
-- Supported types: `static`, `php`, `node`, `python`, `proxy`
-- All containers join a shared `linkhosting_sites` Docker network
-- The Nginx proxy communicates with containers via container name (`site-<name>`)
+- Supported types: `static`, `php`, `node`, `python`, `proxy`, `wordpress`
+- Non-WordPress containers join the `linkhosting_sites` Docker network; the proxy
+  reaches them via the conventional hostname `site-<name>`
+- WordPress sites are deployed as a **per-site Docker Compose project** with a
+  dedicated MariaDB container.  The Compose project and container names follow a
+  deterministic convention so that Nginx can resolve them via Docker's embedded DNS:
+  - Compose project name: `lh_wp_<safe_name>` (hyphens → underscores)
+  - WordPress service/container name: `wp_<safe_name>`
+  - Full Docker container name: `lh_wp_<safe_name>-wp_<safe_name>-1`
+  - The container is attached to the `linkhosting_proxy` network so Nginx can
+    reach it; the generated vhost uses this full name as the `proxy_pass` target
 
 ### Databases
 - Shared PostgreSQL instance (`db-pg`) for site databases

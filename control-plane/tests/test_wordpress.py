@@ -209,8 +209,15 @@ def test_create_site_page_requires_login(client):
     assert resp.status_code == 302
 
 
-def test_proxy_vhost_includes_wordpress_service(tmp_path, monkeypatch):
-    """write_vhost for a WordPress site should use the wp_ service name."""
+def test_proxy_vhost_includes_wordpress_container_name(tmp_path, monkeypatch):
+    """write_vhost for a WordPress site must proxy_pass to the full container name.
+
+    The container created by deploy_wordpress is named
+    ``lh_wp_<safe_name>-wp_<safe_name>-1``.  Using this name (rather than
+    ``site-wp_<safe_name>``) is what allows Docker's embedded DNS to resolve
+    the upstream inside the ``linkhosting_proxy`` network, preventing the
+    ``host not found in upstream`` Nginx error.
+    """
     monkeypatch.setenv("PROXY_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("DEV_MODE", "false")
     import importlib
@@ -231,6 +238,68 @@ def test_proxy_vhost_includes_wordpress_service(tmp_path, monkeypatch):
     proxy_module.write_vhost(site, tls=False)
 
     conf = (tmp_path / "wpsite.conf").read_text()
-    # Should proxy to the WordPress service name (wp_wpsite), not site-wpsite
-    assert "wp_wpsite" in conf
-    assert "site-wpsite" not in conf
+    # proxy_pass must use the full Docker container name so DNS resolves
+    expected_upstream = "lh_wp_wpsite-wp_wpsite-1"
+    assert f"proxy_pass http://{expected_upstream}:80" in conf
+    # Must NOT use the old broken pattern (site-wp_<name>) as the proxy_pass target
+    assert "proxy_pass http://site-wp_wpsite" not in conf
+    assert "proxy_pass http://site-wpsite" not in conf
+
+
+def test_proxy_vhost_hyphenated_wordpress_site(tmp_path, monkeypatch):
+    """Hyphens in the site name are normalised to underscores in container names."""
+    monkeypatch.setenv("PROXY_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("DEV_MODE", "false")
+    import importlib
+    import app.config as config_module
+    config_module.settings = config_module.Settings()
+
+    from app.services import proxy as proxy_module
+    importlib.reload(proxy_module)
+
+    from app.models import Site, SiteType, SiteStatus
+    site = Site(
+        id=2,
+        name="psychic-link",
+        domain="psychiclink.link",
+        site_type=SiteType.wordpress,
+        status=SiteStatus.pending,
+    )
+    proxy_module.write_vhost(site, tls=False)
+
+    conf = (tmp_path / "psychic-link.conf").read_text()
+    # Container name follows docker-compose naming: project-service-1
+    expected_upstream = "lh_wp_psychic_link-wp_psychic_link-1"
+    assert f"proxy_pass http://{expected_upstream}:80" in conf
+    assert "site-wp_psychic_link" not in conf
+
+
+def test_proxy_vhost_tls_uses_site_name_for_certs(tmp_path, monkeypatch):
+    """TLS vhost must use site.name (not the upstream container name) for cert paths."""
+    monkeypatch.setenv("PROXY_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("DEV_MODE", "false")
+    import importlib
+    import app.config as config_module
+    config_module.settings = config_module.Settings()
+
+    from app.services import proxy as proxy_module
+    importlib.reload(proxy_module)
+
+    from app.models import Site, SiteType, SiteStatus
+    site = Site(
+        id=3,
+        name="wpsite",
+        domain="wpsite.link",
+        site_type=SiteType.wordpress,
+        status=SiteStatus.pending,
+    )
+    proxy_module.write_vhost(site, tls=True)
+
+    conf = (tmp_path / "wpsite.conf").read_text()
+    # Cert paths must be keyed on the human site name, not the container name
+    assert "/etc/nginx/certs/wpsite/cert.pem" in conf
+    assert "/etc/nginx/certs/wpsite/key.pem" in conf
+    # proxy_pass still uses the full container name
+    assert "proxy_pass http://lh_wp_wpsite-wp_wpsite-1:80" in conf
+    assert "proxy_pass http://site-wpsite" not in conf
+    assert "proxy_pass http://site-wp_wpsite" not in conf
