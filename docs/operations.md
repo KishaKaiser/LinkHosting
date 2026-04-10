@@ -61,33 +61,75 @@ curl http://localhost:8000/health
 
 ## DNS Setup
 
-LinkHosting does not manage DNS — you must add DNS records pointing each site's domain to your server's IP.
+LinkHosting includes a built-in **CoreDNS** service (`lh-dns`) that automatically creates `A` records for every deployed site (`sitename.link → HOST_LAN_IP`).  No manual `/etc/hosts` entries or external DNS tools are needed.
 
-### Option A: dnsmasq (recommended for home/lab networks)
+By default CoreDNS is exposed on host **port 5353** (not 53) to avoid conflicts with `systemd-resolved` on Ubuntu 24.04.  Standard DNS clients expect port 53, so choose one of the options below.
+
+### Option A — query on port 5353 directly
+
+No host changes required.  Works for any client that supports a custom DNS port:
 
 ```bash
-sudo apt-get install -y dnsmasq
-
-# Add to /etc/dnsmasq.conf:
-# address=/.link/192.168.4.32
-# (Host fixed IP is 192.168.4.32)
-sudo systemctl restart dnsmasq
+dig mysite.link @192.168.4.32 -p 5353
+nslookup -port=5353 mysite.link 192.168.4.32
 ```
 
-### Option B: Pi-hole (existing Pi-hole)
+For routers that support DNS-over-custom-port (rare), set the port to 5353 in the router's DNS settings.
 
-Add custom DNS records via the Pi-hole admin panel:
-- Domain: `mysite.link`
-- IP: `<host LAN IP>`
+### Option B (recommended) — enable the port-53 forwarder container
 
-### Option C: Manual /etc/hosts (per-client, for testing)
+Start the optional `dns-forwarder` service.  It listens on host port 53 and proxies all queries to `lh-dns`, so standard DNS clients need no special configuration:
 
-On each client machine, add to `/etc/hosts` (Linux/Mac) or `C:\Windows\System32\drivers\etc\hosts` (Windows):
-
+```bash
+# Prerequisites: nothing using port 53 on the host (check with: sudo ss -ulnp | grep :53)
+docker compose --profile dns-forwarder up -d
 ```
-192.168.4.32  mysite.link
-192.168.4.32  myapp.link
+
+Then configure your router's DHCP to hand out `192.168.4.32` as the primary DNS server.  All LAN devices will resolve `*.link` automatically without any per-device changes.
+
+Verify:
+```bash
+dig mysite.link @192.168.4.32          # standard port 53
 ```
+
+### Option C — move CoreDNS itself to port 53
+
+Disable `systemd-resolved`, then set `DNS_PORT=53` in `.env` and restart:
+
+```bash
+sudo systemctl disable --now systemd-resolved
+sudo rm /etc/resolv.conf
+echo "nameserver 1.1.1.1" | sudo tee /etc/resolv.conf
+
+# In .env:  DNS_PORT=53
+docker compose up -d
+```
+
+Verify:
+```bash
+dig mysite.link @192.168.4.32
+```
+
+### Troubleshooting DNS
+
+```bash
+# Check CoreDNS is running
+docker compose ps dns
+
+# View CoreDNS logs
+docker compose logs dns
+
+# Check the hosts file CoreDNS reads
+docker compose exec panel cat /data/dns/hosts
+
+# Test port reachability (default port 5353)
+nc -zu 192.168.4.32 5353
+
+# Test port reachability (if dns-forwarder or DNS_PORT=53)
+nc -zu 192.168.4.32 53
+```
+
+If `dig` returns NXDOMAIN: the site may not be deployed yet, or `HOST_LAN_IP` is not set in `.env`, or `DNS_ENABLED=false`.
 
 ---
 
@@ -229,6 +271,11 @@ sudo ufw allow ssh        # Keep SSH access!
 sudo ufw allow 80/tcp     # HTTP
 sudo ufw allow 443/tcp    # HTTPS
 sudo ufw allow 2222/tcp   # SFTP
+# DNS (default port 5353; change to 53 if using dns-forwarder or DNS_PORT=53)
+sudo ufw allow 5353/udp   # CoreDNS (default)
+sudo ufw allow 5353/tcp   # CoreDNS (default)
+# sudo ufw allow 53/udp   # Uncomment if using port 53 (dns-forwarder or DNS_PORT=53)
+# sudo ufw allow 53/tcp   # Uncomment if using port 53
 # Block control-plane API from general LAN — admin only
 sudo ufw allow from 192.168.4.0/24 to any port 8000  # LAN only — tighten to admin host if needed
 sudo ufw enable

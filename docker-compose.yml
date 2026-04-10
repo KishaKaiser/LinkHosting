@@ -167,6 +167,30 @@ services:
       - "${DNS_LISTEN_ADDR:-0.0.0.0}:${DNS_PORT:-5353}:53/tcp"
     logging: *default-logging
 
+  # ── CoreDNS port-53 forwarder (optional) ──────────────────────────────────
+  # Listens on host port 53 and forwards all queries to lh-dns.
+  # Lets standard DNS clients (routers, devices) use this server as a DNS
+  # resolver without specifying a custom port.
+  #
+  # Enable with:   docker compose --profile dns-forwarder up -d
+  # Prerequisite:  disable systemd-resolved or any other service using port 53.
+  dns-forwarder:
+    image: coredns/coredns:1.11.3
+    container_name: lh-dns-forwarder
+    restart: unless-stopped
+    profiles: [dns-forwarder]
+    command: ["-conf", "/etc/coredns/Corefile.forwarder"]
+    volumes:
+      - ./dns/Corefile.forwarder:/etc/coredns/Corefile.forwarder:ro
+    networks:
+      - proxy
+    ports:
+      - "${DNS_LISTEN_ADDR:-0.0.0.0}:53:53/udp"
+      - "${DNS_LISTEN_ADDR:-0.0.0.0}:53:53/tcp"
+    depends_on:
+      - dns
+    logging: *default-logging
+
   # ── Nginx Reverse Proxy ────────────────────────────────────────────────────
   proxy:
     build:
