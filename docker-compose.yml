@@ -163,8 +163,8 @@ services:
     networks:
       - proxy
     ports:
-      - "${DNS_LISTEN_ADDR:-0.0.0.0}:53:53/udp"
-      - "${DNS_LISTEN_ADDR:-0.0.0.0}:53:53/tcp"
+      - "${DNS_LISTEN_ADDR:-0.0.0.0}:${DNS_PORT:-5353}:53/udp"
+      - "${DNS_LISTEN_ADDR:-0.0.0.0}:${DNS_PORT:-5353}:53/tcp"
     logging: *default-logging
 
   # ── Nginx Reverse Proxy ────────────────────────────────────────────────────
