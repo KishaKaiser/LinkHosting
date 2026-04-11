@@ -314,7 +314,7 @@ detect_lan_ip() {
   if [[ "$PLATFORM" == "linux" ]]; then
     # Pick the IP of the default route interface, if available.
     local iface
-    iface="$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')"
+    iface="$(ip route show default 2>/dev/null | awk '{print $5; exit}')"
     if [[ -n "$iface" ]]; then
       ip -4 addr show "$iface" 2>/dev/null \
         | awk '/inet / {gsub(/\/.*/, "", $2); print $2; exit}'
@@ -355,7 +355,7 @@ fi
 
 if [[ "$ENABLE_DNS53" == "true" && "$PLATFORM" == "linux" ]]; then
   # Check if something is already listening on port 53.
-  if ss -ulnp 2>/dev/null | grep -q ':53 ' || ss -tlnp 2>/dev/null | grep -q ':53 '; then
+  if ss -ulnp 2>/dev/null | grep -q ':53[^0-9]' || ss -tlnp 2>/dev/null | grep -q ':53[^0-9]'; then
     echo ""
     warn "A service is already listening on port 53 (likely systemd-resolved)."
     echo -e "  To free the port, run:"
@@ -521,7 +521,7 @@ else
   echo -e "  To use standard DNS clients, enable port-53 forwarding:"
   echo -e "    ${CYAN}docker compose --profile dns-forwarder up -d${RESET}"
   echo -e "  Or query on port 5353 directly:"
-  echo -e "    ${CYAN}dig mysite.${DOMAIN_SUFFIX} @${HOST_LAN_IP:-<server-ip>} -p 5353${RESET}"
+  echo -e "    ${CYAN}dig mysite.${DOMAIN_SUFFIX} @${HOST_LAN_IP} -p 5353${RESET}"
 fi
 echo ""
 echo -e "  ${BOLD}Next steps:${RESET}"
