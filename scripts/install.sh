@@ -308,6 +308,79 @@ echo ""
 prompt PANEL_PORT   "Control-plane bind address (host:port)" "0.0.0.0:8000"
 prompt SFTP_PORT    "SFTP host port" "2222"
 
+# ── LAN IP ────────────────────────────────────────────────────────────────────
+# Auto-detect the primary LAN IP of this machine as the default.
+detect_lan_ip() {
+  if [[ "$PLATFORM" == "linux" ]]; then
+    # Pick the IP of the default route interface, if available.
+    local iface
+    iface="$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')"
+    if [[ -n "$iface" ]]; then
+      ip -4 addr show "$iface" 2>/dev/null \
+        | awk '/inet / {gsub(/\/.*/, "", $2); print $2; exit}'
+    else
+      hostname -I 2>/dev/null | awk '{print $1}'
+    fi
+  elif [[ "$PLATFORM" == "macos" ]]; then
+    ipconfig getifaddr en0 2>/dev/null \
+      || ipconfig getifaddr en1 2>/dev/null \
+      || true
+  fi
+}
+
+DETECTED_IP="$(detect_lan_ip)"
+echo ""
+echo -e "  ${BOLD}LAN IP of this server:${RESET}"
+echo -e "  This is used as the DNS A-record target for all *.${DOMAIN_SUFFIX} sites."
+echo -e "  Clients must point their DNS resolver at this IP to resolve site names."
+echo ""
+prompt HOST_LAN_IP "Server LAN IP" "${DETECTED_IP:-192.168.1.1}"
+
+# ── Port-53 DNS forwarder ─────────────────────────────────────────────────────
+# CoreDNS defaults to host port 5353 to avoid conflicts with systemd-resolved.
+# Standard DNS clients (browsers, routers) use port 53, so we ask whether to
+# start the optional dns-forwarder sidecar that listens on port 53.
+ENABLE_DNS53=false
+echo ""
+echo -e "  ${BOLD}DNS port-53 forwarding:${RESET}"
+echo -e "  By default CoreDNS listens on host port ${CYAN}5353${RESET}."
+echo -e "  Enable the ${CYAN}dns-forwarder${RESET} container to also listen on port ${CYAN}53${RESET},"
+echo -e "  so that routers and devices can use this server as a standard DNS resolver."
+echo -e "  ${YELLOW}⚠  Port 53 must be free on this host (disable systemd-resolved if needed).${RESET}"
+echo ""
+if [[ "$NON_INTERACTIVE" != "true" ]]; then
+  read -r -p "  Enable port-53 DNS forwarding? [y/N]: " _dns53_choice
+  [[ "${_dns53_choice,,}" == "y" ]] && ENABLE_DNS53=true
+fi
+
+if [[ "$ENABLE_DNS53" == "true" && "$PLATFORM" == "linux" ]]; then
+  # Check if something is already listening on port 53.
+  if ss -ulnp 2>/dev/null | grep -q ':53 ' || ss -tlnp 2>/dev/null | grep -q ':53 '; then
+    echo ""
+    warn "A service is already listening on port 53 (likely systemd-resolved)."
+    echo -e "  To free the port, run:"
+    echo -e "    ${CYAN}sudo systemctl disable --now systemd-resolved${RESET}"
+    echo -e "    ${CYAN}sudo rm /etc/resolv.conf${RESET}"
+    echo -e "    ${CYAN}echo 'nameserver 1.1.1.1' | sudo tee /etc/resolv.conf${RESET}"
+    echo ""
+    if [[ "$NON_INTERACTIVE" != "true" ]]; then
+      read -r -p "  Disable systemd-resolved now and continue? [y/N]: " _dis_resolved
+      if [[ "${_dis_resolved,,}" == "y" ]]; then
+        sudo systemctl disable --now systemd-resolved 2>/dev/null && \
+          sudo rm -f /etc/resolv.conf && \
+          echo "nameserver 1.1.1.1" | sudo tee /etc/resolv.conf >/dev/null
+        ok "systemd-resolved disabled; /etc/resolv.conf updated"
+      else
+        warn "Skipping port-53 forwarding — port 53 is still in use."
+        ENABLE_DNS53=false
+      fi
+    else
+      warn "Non-interactive mode: skipping systemd-resolved disable. Set DNS_PORT=53 manually."
+      ENABLE_DNS53=false
+    fi
+  fi
+fi
+
 # Generate session cookie signing key
 SESSION_SECRET_KEY="$(openssl rand -hex 64)"
 
@@ -319,6 +392,7 @@ set_env SESSION_SECRET_KEY "$SESSION_SECRET_KEY"
 set_env DOMAIN_SUFFIX      "$DOMAIN_SUFFIX"
 set_env PANEL_PORT         "$PANEL_PORT"
 set_env SFTP_PORT          "$SFTP_PORT"
+set_env HOST_LAN_IP        "$HOST_LAN_IP"
 
 ok ".env written"
 
@@ -333,6 +407,8 @@ if [[ "$INSTALL_SERVICE" == "true" ]]; then
   else
     SERVICE_FILE="/etc/systemd/system/linkhosting.service"
     info "Installing systemd service -> $SERVICE_FILE"
+    DNS_PROFILE_FLAG=""
+    [[ "$ENABLE_DNS53" == "true" ]] && DNS_PROFILE_FLAG="--profile dns-forwarder "
     sudo tee "$SERVICE_FILE" >/dev/null <<UNIT
 [Unit]
 Description=LinkHosting Docker Compose Stack
@@ -343,7 +419,7 @@ Requires=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${REPO_ROOT}
-ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStart=/usr/bin/docker compose ${DNS_PROFILE_FLAG}up -d --remove-orphans
 ExecStop=/usr/bin/docker compose down
 TimeoutStartSec=300
 
@@ -360,7 +436,11 @@ fi
 echo ""
 echo "────────────────────────────────────────────────────────────────"
 info "Starting LinkHosting stack (first run may take a few minutes)..."
-"${DOCKER_COMPOSE[@]}" up -d --build
+if [[ "$ENABLE_DNS53" == "true" ]]; then
+  "${DOCKER_COMPOSE[@]}" --profile dns-forwarder up -d --build
+else
+  "${DOCKER_COMPOSE[@]}" up -d --build
+fi
 
 # ── Worker readiness check ────────────────────────────────────────────────────
 echo ""
@@ -425,6 +505,24 @@ echo -e "  ${YELLOW}⚠  Save the admin password above — it is stored in .env 
 echo ""
 echo -e "  ${BOLD}Secrets saved to:${RESET} ${REPO_ROOT}/.env"
 echo -e "  ${YELLOW}⚠  Keep .env private — it contains database passwords and API keys.${RESET}"
+echo ""
+echo -e "  ${BOLD}DNS configuration:${RESET}"
+if [[ -n "$HOST_LAN_IP" ]]; then
+  echo -e "  DNS A-records will point *.${DOMAIN_SUFFIX} → ${CYAN}${HOST_LAN_IP}${RESET}"
+else
+  echo -e "  ${YELLOW}⚠  HOST_LAN_IP is not set — DNS records will NOT be created for new sites.${RESET}"
+  echo -e "     Set HOST_LAN_IP in ${REPO_ROOT}/.env and restart: docker compose up -d"
+fi
+if [[ "$ENABLE_DNS53" == "true" ]]; then
+  echo -e "  Port-53 forwarder ${GREEN}enabled${RESET} — point your router's DNS to ${CYAN}${HOST_LAN_IP}${RESET}"
+  echo -e "  Verify: ${CYAN}dig mysite.${DOMAIN_SUFFIX} @${HOST_LAN_IP}${RESET}"
+else
+  echo -e "  CoreDNS is listening on host port ${CYAN}5353${RESET} (not 53)."
+  echo -e "  To use standard DNS clients, enable port-53 forwarding:"
+  echo -e "    ${CYAN}docker compose --profile dns-forwarder up -d${RESET}"
+  echo -e "  Or query on port 5353 directly:"
+  echo -e "    ${CYAN}dig mysite.${DOMAIN_SUFFIX} @${HOST_LAN_IP:-<server-ip>} -p 5353${RESET}"
+fi
 echo ""
 echo -e "  ${BOLD}Next steps:${RESET}"
 echo -e "  1. Log in to the panel  -> ${CYAN}http://${HEALTH_HOST}:${HEALTH_PORT}/panel/${RESET}"
