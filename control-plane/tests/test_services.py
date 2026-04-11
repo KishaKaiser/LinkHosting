@@ -144,7 +144,7 @@ def test_dns_init_hosts_file_skips_when_disabled(tmp_path, monkeypatch):
     assert not hosts_file.exists()
 
 
-
+def test_dns_add_record_dev_mode(tmp_path, monkeypatch):
     """In dev mode, add_dns_record should log but not write any file."""
     monkeypatch.setenv("DNS_HOSTS_FILE", str(tmp_path / "hosts"))
     monkeypatch.setenv("HOST_LAN_IP", "192.168.4.32")
