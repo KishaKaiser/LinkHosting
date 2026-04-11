@@ -1,0 +1,16 @@
+# CoreDNS configuration for the optional dns-forwarder service.
+#
+# This service listens on host port 53 and forwards all queries to the main
+# lh-dns CoreDNS container (which handles *.link internally and forwards
+# everything else upstream).  It lets standard DNS clients (routers, devices)
+# use this server as a DNS resolver without needing to specify a non-standard port.
+#
+# Enable with:
+#   docker compose --profile dns-forwarder up -d
+
+. {
+    forward . lh-dns
+    cache 30
+    errors
+    log
+}

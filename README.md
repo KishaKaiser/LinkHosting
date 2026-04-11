@@ -164,25 +164,50 @@ python3 scripts/lh.py create-sftp mysite           # ← save the password!
 
 LinkHosting runs a **CoreDNS** service that automatically creates a DNS record for every deployed site (`sitename.link → HOST_LAN_IP`).  No manual `/etc/hosts` entries are needed.
 
-For LAN clients to resolve `*.link` names, they must use this server as their DNS resolver.
+CoreDNS is exposed on host **port 5353** by default (`DNS_PORT=5353`) to avoid conflicts with `systemd-resolved`.  Standard DNS clients expect port 53, so pick one of the options below.
 
-**Option A (recommended) — router DHCP:**
-Configure your router's DHCP settings to hand out the server's LAN IP (e.g. `192.168.4.32`) as the primary DNS server. All LAN devices will then resolve `*.link` automatically.
+**Option A — query on port 5353 directly (no host changes needed):**
+Use `dig` or `nslookup` with an explicit port.  Useful for testing or for routers/clients that support custom DNS ports:
+```bash
+dig mysite.link @192.168.4.32 -p 5353
+```
 
-**Option B — per-device:**
-Set the server's LAN IP as the DNS server manually on each device.
+**Option B (recommended for LAN clients) — enable the port-53 forwarder container:**
+Start the optional `dns-forwarder` service.  It listens on host port 53 and proxies all queries to the CoreDNS container, so standard clients can point to this server without any custom-port configuration:
+```bash
+docker compose --profile dns-forwarder up -d
+```
+Then configure your router's DHCP to hand out `192.168.4.32` as the primary DNS server.  All LAN devices will resolve `*.link` automatically.
+
+**Option C — move CoreDNS itself to port 53:**
+Disable `systemd-resolved` first, then set `DNS_PORT=53` in `.env` and restart the stack:
+```bash
+sudo systemctl disable --now systemd-resolved
+sudo rm /etc/resolv.conf
+echo "nameserver 1.1.1.1" | sudo tee /etc/resolv.conf
+# In .env: DNS_PORT=53
+docker compose up -d
+```
 
 **Verify DNS is working:**
+
+By default CoreDNS is exposed on host **port 5353** (not 53) to avoid conflicts with `systemd-resolved` on Ubuntu 24.04.  Use the `-p` flag when querying directly:
+
 ```bash
 # Replace 192.168.4.32 with your actual server LAN IP
-dig mysite.link @192.168.4.32          # should return your server's LAN IP
-nslookup mysite.link 192.168.4.32      # alternative
+dig mysite.link @192.168.4.32 -p 5353          # should return your server's LAN IP
+nslookup -port=5353 mysite.link 192.168.4.32   # alternative
+
+# If you set DNS_PORT=53 in .env (or enabled the dns-forwarder profile), omit the port flag:
+dig mysite.link @192.168.4.32
 ```
+
+For standard clients that cannot specify a custom port, see **[Step 6 — DNS client setup](#6-configure-clients-to-use-the-built-in-dns-server)** options below.
 
 **Troubleshooting:**
 - If `dig` returns NXDOMAIN, the site may not have been deployed yet, or `HOST_LAN_IP` is not set in `.env`.
 - Check CoreDNS logs: `docker compose logs dns`
-- Check port 53 is reachable: `nc -zu <server-lan-ip> 53`
+- Check port 5353 is reachable: `nc -zu <server-lan-ip> 5353`
 - Confirm the hosts file is populated: `docker compose exec panel cat /data/dns/hosts`
 - If `DNS_ENABLED=false` in `.env`, DNS records are not managed automatically.
 
@@ -213,6 +238,7 @@ See [docs/ca-trust.md](docs/ca-trust.md) for other platforms (macOS, Windows, Fi
 | `DNS_ENABLED` | | `true` | Enable built-in CoreDNS and auto DNS record management |
 | `HOST_LAN_IP` | | — | Server LAN IP; A records for `sitename.link` resolve here |
 | `DNS_LISTEN_ADDR` | | `0.0.0.0` | Address CoreDNS binds port 53 on |
+| `DNS_PORT` | | `5353` | Host port CoreDNS is exposed on (use 53 if systemd-resolved is disabled) |
 
 ---
 
