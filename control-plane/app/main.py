@@ -35,6 +35,12 @@ async def lifespan(app: FastAPI):
             settings.admin_secret_key = key
             log.info("Loaded admin key override from %s", override_file)
 
+    # Ensure the CoreDNS hosts file exists before the DNS container tries to
+    # read it.  The file lives on a shared named volume (dns_hosts) that starts
+    # empty on the first `docker compose up`.
+    from app.services.dns import init_dns_hosts_file
+    init_dns_hosts_file()
+
     log.info(
         "LinkHosting control-plane started (dev_mode=%s)", settings.dev_mode
     )
