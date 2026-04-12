@@ -103,6 +103,47 @@ def test_get_ca_cert_pem_dev_mode():
 
 # ── DNS service tests ──────────────────────────────────────────────────────
 
+def test_dns_init_hosts_file_creates_file(tmp_path, monkeypatch):
+    """init_dns_hosts_file should create an empty hosts file when absent."""
+    hosts_file = tmp_path / "hosts"
+    monkeypatch.setenv("DNS_HOSTS_FILE", str(hosts_file))
+    monkeypatch.setenv("DNS_ENABLED", "true")
+    monkeypatch.setenv("DEV_MODE", "false")
+
+    import importlib
+    import app.config as config_module
+    config_module.settings = config_module.Settings()
+
+    from app.services import dns as dns_module
+    importlib.reload(dns_module)
+
+    assert not hosts_file.exists()
+    dns_module.init_dns_hosts_file()
+    assert hosts_file.exists()
+    # Calling again should be a no-op (idempotent)
+    mtime = hosts_file.stat().st_mtime
+    dns_module.init_dns_hosts_file()
+    assert hosts_file.stat().st_mtime == mtime
+
+
+def test_dns_init_hosts_file_skips_when_disabled(tmp_path, monkeypatch):
+    """init_dns_hosts_file should do nothing when DNS_ENABLED=false."""
+    hosts_file = tmp_path / "hosts"
+    monkeypatch.setenv("DNS_HOSTS_FILE", str(hosts_file))
+    monkeypatch.setenv("DNS_ENABLED", "false")
+    monkeypatch.setenv("DEV_MODE", "false")
+
+    import importlib
+    import app.config as config_module
+    config_module.settings = config_module.Settings()
+
+    from app.services import dns as dns_module
+    importlib.reload(dns_module)
+
+    dns_module.init_dns_hosts_file()
+    assert not hosts_file.exists()
+
+
 def test_dns_add_record_dev_mode(tmp_path, monkeypatch):
     """In dev mode, add_dns_record should log but not write any file."""
     monkeypatch.setenv("DNS_HOSTS_FILE", str(tmp_path / "hosts"))

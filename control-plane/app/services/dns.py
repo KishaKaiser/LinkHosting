@@ -48,6 +48,30 @@ def _write_records(records: dict[str, str]) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
+def init_dns_hosts_file() -> None:
+    """Create the hosts file with an empty record set if it does not exist.
+
+    Called once at panel startup so CoreDNS always finds a valid (possibly
+    empty) file from the first moment it tries to read it.
+    Does nothing when ``DNS_ENABLED`` is ``false``, when running in dev mode,
+    or when the file already exists.
+    """
+    if not settings.dns_enabled:
+        log.debug("DNS disabled — skipping hosts file initialisation")
+        return
+
+    if settings.dev_mode:
+        log.info("[DEV] Would initialise DNS hosts file")
+        return
+
+    path = _hosts_path()
+    if path.exists():
+        return
+
+    _write_records({})
+    log.info("Initialised empty DNS hosts file at %s", path)
+
+
 def add_dns_record(hostname: str) -> None:
     """Add or update an A record pointing *hostname* to the configured LAN IP.
 
