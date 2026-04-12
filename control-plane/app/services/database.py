@@ -1,8 +1,8 @@
 """Database provisioning service."""
 import logging
+import re as _re
 import secrets
 import string
-from typing import Optional
 
 from app.config import settings
 from app.models import DatabaseEngine
@@ -13,6 +13,24 @@ POSTGRES_HOST = "db-pg"
 POSTGRES_PORT = 5432
 MYSQL_HOST = "db-mysql"
 MYSQL_PORT = 3306
+
+_SAFE_IDENTIFIER_RE = _re.compile(r"^[a-z0-9_]{1,64}$")
+
+
+def _validate_identifier(name: str) -> None:
+    """Raise ValueError if name is not a safe SQL identifier (alphanumeric + underscore)."""
+    if not _SAFE_IDENTIFIER_RE.match(name):
+        raise ValueError(f"Unsafe database identifier: {name!r}")
+
+
+def db_identifiers(site_name: str) -> tuple[str, str]:
+    """Return (db_name, db_user) for a site — deterministic, no secrets."""
+    safe = site_name.replace("-", "_")
+    db_name = f"site_{safe}"
+    db_user = f"user_{safe}"
+    _validate_identifier(db_name)
+    _validate_identifier(db_user)
+    return db_name, db_user
 
 
 def _random_password(length: int = 24) -> str:
@@ -27,9 +45,8 @@ def _pg_connection():
 
 def _mysql_connection():
     import pymysql
-    import re
     # Parse the DSN: mysql://user:pass@host:port
-    m = re.match(
+    m = _re.match(
         r"mysql://(?P<user>[^:]+):(?P<password>[^@]*)@(?P<host>[^:/]+)(?::(?P<port>\d+))?",
         settings.site_mysql_dsn,
     )
@@ -156,27 +173,6 @@ def drop_mysql_db(db_name: str, db_user: str) -> None:
     finally:
         cur.close()
         conn.close()
-
-
-import re as _re
-
-_SAFE_IDENTIFIER_RE = _re.compile(r"^[a-z0-9_]{1,64}$")
-
-
-def _validate_identifier(name: str) -> None:
-    """Raise ValueError if name is not a safe SQL identifier (alphanumeric + underscore)."""
-    if not _SAFE_IDENTIFIER_RE.match(name):
-        raise ValueError(f"Unsafe database identifier: {name!r}")
-
-
-def db_identifiers(site_name: str) -> tuple[str, str]:
-    """Return (db_name, db_user) for a site — deterministic, no secrets."""
-    safe = site_name.replace("-", "_")
-    db_name = f"site_{safe}"
-    db_user = f"user_{safe}"
-    _validate_identifier(db_name)
-    _validate_identifier(db_user)
-    return db_name, db_user
 
 
 def provision_database(

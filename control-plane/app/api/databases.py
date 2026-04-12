@@ -54,7 +54,10 @@ def create_database(
         )
     except Exception as exc:
         log.exception("Database provision failed for site %s", site_name)
-        raise HTTPException(status_code=500, detail="Database creation failed. Check server logs for details.")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create {payload.engine} database. Check server logs for details.",
+        )
 
     pw_hash = pwd_context.hash(password)
     site_db = SiteDatabase(
