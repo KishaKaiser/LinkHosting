@@ -5,6 +5,7 @@ Provides session-based login and HTML pages backed by Jinja2 templates.
 All UI routes live under /panel/.
 """
 import secrets
+import json as _json
 import logging
 from pathlib import Path
 
@@ -660,7 +661,6 @@ async def create_database_ui(
 
     # Return the page directly (not a redirect) so credentials are delivered only
     # in the HTTP response body and never stored in the session cookie.
-    import json as _json
     jobs = (
         db.query(DeployJob)
         .filter(DeployJob.site_id == site.id)
@@ -744,8 +744,6 @@ async def delete_database_ui(
     log.info("UI: Deleted database %s for site %s", site_db.db_name, site_name)
     request.session["flash_message"] = f"Database '{site_db.db_name}' deleted."
     return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
-
-
 
 
 @router.post("/sites/{site_name}/env")

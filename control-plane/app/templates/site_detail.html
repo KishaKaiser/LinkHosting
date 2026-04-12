@@ -78,7 +78,7 @@
         <tbody>
         {% for sdb in databases %}
         <tr>
-            <td><span class="badge badge-pending">{{ sdb.engine.value }}</span></td>
+            <td><span class="badge badge-engine">{{ sdb.engine.value }}</span></td>
             <td><code>{{ sdb.db_name }}</code></td>
             <td><code>{{ sdb.db_user }}</code></td>
             <td>{{ sdb.host }}</td>
