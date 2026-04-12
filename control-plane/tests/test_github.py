@@ -32,7 +32,7 @@ class TestValidateGitHubUrl:
 
     def test_invalid_non_github(self):
         from app.services.github import _validate_github_url
-        with pytest.raises(ValueError, match="Only public GitHub HTTPS URLs"):
+        with pytest.raises(ValueError, match="Only GitHub HTTPS URLs"):
             _validate_github_url("https://gitlab.com/owner/repo")
 
     def test_invalid_no_owner(self):
@@ -101,6 +101,21 @@ class TestDetectSiteType:
         (tmp_path / "package.json").write_text("{}")
         (tmp_path / "composer.json").write_text("{}")
         assert detect_site_type(tmp_path) == SiteType.node
+
+
+class TestInjectToken:
+    def test_injects_token(self):
+        from app.services.github import _inject_token
+        url = "https://github.com/owner/repo.git"
+        assert _inject_token(url, "mytoken") == "https://mytoken@github.com/owner/repo.git"
+
+    def test_empty_token_leaves_url_unchanged(self):
+        from app.services.github import _inject_token
+        url = "https://github.com/owner/repo.git"
+        # Injecting an empty token produces an odd URL; callers should guard against this.
+        # The function itself does not validate the token.
+        result = _inject_token(url, "")
+        assert result == "https://@github.com/owner/repo.git"
 
 
 class TestCloneRepoDev:

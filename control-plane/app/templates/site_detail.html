@@ -42,6 +42,9 @@
         <form method="post" action="/panel/sites/{{ site.name }}/stop">
             <button type="submit" class="btn btn-secondary">⏹ Stop</button>
         </form>
+        <form method="post" action="/panel/sites/{{ site.name }}/issue-cert">
+            <button type="submit" class="btn btn-success">🔒 Issue SSL Certificate</button>
+        </form>
         <form method="post" action="/panel/sites/{{ site.name }}/delete"
               onsubmit="return confirm('Delete site {{ site.name }}? This cannot be undone.')">
             <button type="submit" class="btn btn-danger">🗑 Delete</button>
@@ -50,6 +53,26 @@
     {% if site.site_type.value == 'wordpress' %}
     <p class="text-muted mt-1">WordPress sites are deployed via docker-compose. Deploy runs in the background — check the Jobs section below.</p>
     {% endif %}
+    <p class="text-muted mt-1">
+        <strong>SSL:</strong> Issues a certificate from the internal CA for <code>{{ site.domain }}</code>.
+        The site must be deployed before HTTPS becomes active.
+        Download the <a href="/ca.crt">CA certificate</a> and trust it in your browser to avoid warnings.
+    </p>
+</div>
+
+<div class="card">
+    <h2>Environment Variables (.env)</h2>
+    <p class="text-muted" style="margin-bottom:0.75rem;">
+        One <code>KEY=VALUE</code> pair per line. Lines starting with <code>#</code> are ignored.
+        Changes take effect on the next deploy.
+    </p>
+    <form method="post" action="/panel/sites/{{ site.name }}/env">
+        <div class="form-group">
+            <textarea name="env_text" rows="10" style="font-family:monospace; font-size:0.85rem;"
+                      placeholder="DATABASE_URL=postgres://user:pass@db:5432/mydb&#10;SECRET_KEY=changeme&#10;PORT=3000">{{ env_text or '' }}</textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">💾 Save Variables</button>
+    </form>
 </div>
 
 {% if jobs %}

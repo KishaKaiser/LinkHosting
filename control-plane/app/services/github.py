@@ -51,7 +51,7 @@ def _validate_github_url(repo_url: str) -> str:
         url = "https://" + url
     if not url.startswith("https://github.com/"):
         raise ValueError(
-            f"Only public GitHub HTTPS URLs are supported (got: {repo_url!r}). "
+            f"Only GitHub HTTPS URLs are supported (got: {repo_url!r}). "
             "Expected format: https://github.com/owner/repo"
         )
     # Strip trailing slash
@@ -68,6 +68,16 @@ def _validate_github_url(repo_url: str) -> str:
     return url
 
 
+def _inject_token(url: str, token: str) -> str:
+    """
+    Return an authenticated clone URL by embedding *token* as the HTTP
+    username.  The canonical form ``https://github.com/owner/repo.git``
+    becomes ``https://<token>@github.com/owner/repo.git``.
+    The token is treated as a credential and must never appear in log output.
+    """
+    return url.replace("https://", f"https://{token}@", 1)
+
+
 def clone_repo(
     repo_url: str,
     target_dir: Path,
@@ -75,6 +85,11 @@ def clone_repo(
 ) -> None:
     """
     Clone a GitHub repository into *target_dir*.
+
+    If ``settings.github_token`` is set the token is injected into the clone
+    URL so that private repositories can be accessed.  The token is never
+    written to log output.
+
     In dev mode, only validates the URL and logs; does not perform a real clone.
     """
     url = _validate_github_url(repo_url)
@@ -87,12 +102,15 @@ def clone_repo(
 
     target_dir.mkdir(parents=True, exist_ok=True)
 
+    # Build the clone URL — inject token for private repos if one is configured.
+    clone_url = _inject_token(url, settings.github_token) if settings.github_token.strip() else url
+
     cmd = ["git", "clone", "--depth", "1"]
     if branch:
         cmd += ["--branch", branch]
-    cmd += [url, str(target_dir)]
+    cmd += [clone_url, str(target_dir)]
 
-    log.info("Cloning %s → %s", url, target_dir)
+    log.info("Cloning %s → %s", url, target_dir)  # log sanitised URL (no token)
     result = subprocess.run(
         cmd,
         capture_output=True,
@@ -102,8 +120,12 @@ def clone_repo(
     )
 
     if result.returncode != 0:
+        # Strip the token from any error output before surfacing it.
+        stderr = result.stderr.strip()
+        if settings.github_token.strip():
+            stderr = stderr.replace(settings.github_token, "***")
         raise RuntimeError(
-            f"git clone failed (exit {result.returncode}): {result.stderr.strip()}"
+            f"git clone failed (exit {result.returncode}): {stderr}"
         )
     log.info("Cloned %s successfully", url)
 

@@ -267,6 +267,16 @@ async def site_detail(request: Request, site_name: str, db: Session = Depends(ge
     message = request.session.pop("flash_message", None)
     error = request.session.pop("flash_error", None)
 
+    # Convert stored JSON env vars → KEY=VALUE lines for the textarea editor
+    import json as _json
+    env_text = ""
+    if site.env_vars:
+        try:
+            stored = _json.loads(site.env_vars)
+            env_text = "\n".join(f"{k}={v}" for k, v in stored.items())
+        except Exception:
+            env_text = ""
+
     return templates.TemplateResponse(
         request,
         "site_detail.html",
@@ -275,6 +285,7 @@ async def site_detail(request: Request, site_name: str, db: Session = Depends(ge
             "jobs": jobs,
             "message": message,
             "error": error,
+            "env_text": env_text,
         },
     )
 
@@ -424,7 +435,11 @@ async def settings_page(request: Request):
     return templates.TemplateResponse(
         request,
         "settings.html",
-        {"message": message, "error": error},
+        {
+            "message": message,
+            "error": error,
+            "github_token_configured": bool(settings.github_token),
+        },
     )
 
 
@@ -443,7 +458,7 @@ async def change_password_post(
         return templates.TemplateResponse(
             request,
             "settings.html",
-            {"message": None, "error": msg},
+            {"message": None, "error": msg, "github_token_configured": bool(settings.github_token)},
             status_code=422,
         )
 
@@ -475,3 +490,146 @@ async def change_password_post(
         "Password updated successfully. Use the new password on your next login."
     )
     return RedirectResponse("/panel/settings", status_code=302)
+
+
+# ── GitHub token ──────────────────────────────────────────────────────────────
+
+@router.post("/settings/github-token")
+async def save_github_token(
+    request: Request,
+    github_token: str = Form(...),
+):
+    """Save (or clear) the GitHub Personal Access Token used to clone private repos."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    token = github_token.strip()
+
+    settings.github_token = token
+
+    import pathlib, os
+    token_path = pathlib.Path(settings.github_token_override_file)
+    try:
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text(token)
+        os.chmod(token_path, 0o600)
+        log.info("GitHub token override written to %s", token_path)
+    except OSError as exc:
+        log.warning("Could not persist GitHub token to %s: %s", token_path, exc)
+
+    if token:
+        request.session["flash_message"] = "GitHub token saved. Private repositories can now be cloned."
+    else:
+        request.session["flash_message"] = "GitHub token cleared."
+    return RedirectResponse("/panel/settings", status_code=302)
+
+
+# ── Issue SSL certificate ─────────────────────────────────────────────────────
+
+@router.post("/sites/{site_name}/issue-cert")
+async def issue_cert_ui(request: Request, site_name: str, db: Session = Depends(get_db)):
+    """Issue (or renew) a TLS certificate for the site via the internal CA."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    from app.models import Certificate
+    from app.services.cert import issue_cert
+    from app.services.proxy import write_vhost, reload_proxy
+
+    cert_dir = Path(settings.certs_base_dir) / site.name
+    try:
+        cert_path, key_path, valid_until = issue_cert(site.domain, cert_dir)
+    except Exception as exc:
+        log.exception("UI: cert issuance failed for %s", site_name)
+        request.session["flash_error"] = f"Certificate issuance failed: {exc}"
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    # Replace any existing cert records for this site
+    db.query(Certificate).filter(Certificate.site_id == site.id).delete()
+    cert_obj = Certificate(
+        site_id=site.id,
+        domain=site.domain,
+        cert_path=str(cert_path),
+        key_path=str(key_path),
+        ca_signed=True,
+        valid_until=valid_until,
+    )
+    db.add(cert_obj)
+    db.commit()
+
+    # Update the proxy vhost to serve over HTTPS if the site is already running
+    if site.container_id:
+        try:
+            write_vhost(site, tls=True)
+            reload_proxy()
+        except Exception as exc:
+            log.warning("UI: could not reload proxy with TLS for %s: %s", site_name, exc)
+
+    request.session["flash_message"] = (
+        f"TLS certificate issued for {site.domain}."
+        + (" Nginx reloaded with HTTPS." if site.container_id else
+           " Deploy the site to activate HTTPS.")
+    )
+    return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+
+# ── Environment variables editor ──────────────────────────────────────────────
+
+@router.post("/sites/{site_name}/env")
+async def update_env_ui(
+    request: Request,
+    site_name: str,
+    env_text: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Update a site's environment variables from a KEY=VALUE textarea.
+
+    Lines starting with ``#`` and blank lines are ignored.  Each remaining
+    line must contain an ``=`` sign.  The parsed variables are stored as JSON
+    in ``site.env_vars`` and take effect on the next deploy.
+    """
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    import json as _json
+
+    env_vars: dict[str, str] = {}
+    errors: list[str] = []
+    for lineno, raw in enumerate(env_text.splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            errors.append(f"Line {lineno}: missing '=' in {line!r}")
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if not key:
+            errors.append(f"Line {lineno}: empty key")
+            continue
+        env_vars[key] = value  # value may contain '=' characters — that's fine
+
+    if errors:
+        request.session["flash_error"] = "Invalid .env format: " + "; ".join(errors)
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    site.env_vars = _json.dumps(env_vars) if env_vars else None
+    db.commit()
+    log.info("UI: updated env vars for site %s (%d vars)", site.name, len(env_vars))
+    request.session["flash_message"] = (
+        f"Environment variables saved ({len(env_vars)} variable(s)). "
+        "Redeploy the site for changes to take effect."
+    )
+    return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
