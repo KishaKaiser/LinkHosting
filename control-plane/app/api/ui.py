@@ -538,12 +538,11 @@ async def issue_cert_ui(request: Request, site_name: str, db: Session = Depends(
     if not site:
         return RedirectResponse("/panel/", status_code=302)
 
-    from pathlib import Path as _Path
     from app.models import Certificate
     from app.services.cert import issue_cert
     from app.services.proxy import write_vhost, reload_proxy
 
-    cert_dir = _Path(settings.certs_base_dir) / site.name
+    cert_dir = Path(settings.certs_base_dir) / site.name
     try:
         cert_path, key_path, valid_until = issue_cert(site.domain, cert_dir)
     except Exception as exc:

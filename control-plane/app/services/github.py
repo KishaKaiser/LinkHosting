@@ -103,7 +103,7 @@ def clone_repo(
     target_dir.mkdir(parents=True, exist_ok=True)
 
     # Build the clone URL — inject token for private repos if one is configured.
-    clone_url = _inject_token(url, settings.github_token) if settings.github_token else url
+    clone_url = _inject_token(url, settings.github_token) if settings.github_token.strip() else url
 
     cmd = ["git", "clone", "--depth", "1"]
     if branch:
@@ -122,7 +122,7 @@ def clone_repo(
     if result.returncode != 0:
         # Strip the token from any error output before surfacing it.
         stderr = result.stderr.strip()
-        if settings.github_token:
+        if settings.github_token.strip():
             stderr = stderr.replace(settings.github_token, "***")
         raise RuntimeError(
             f"git clone failed (exit {result.returncode}): {stderr}"
