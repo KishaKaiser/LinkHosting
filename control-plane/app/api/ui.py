@@ -622,7 +622,7 @@ async def create_database_ui(
         )
         return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
-    from app.services.database import provision_database, db_identifiers
+    from app.services.database import provision_database
     from passlib.context import CryptContext
 
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -654,14 +654,55 @@ async def create_database_ui(
     if engine_enum == DatabaseEngine.postgres:
         dsn = f"postgresql://{db_user}:{password}@{host}:{port}/{db_name}"
     else:
-        dsn = f"mysql://{db_user}:{password}@{host}:{port}/{db_name}"
+        raise NotImplementedError(f"DSN format for engine '{engine}' is not implemented.")
 
     log.info("UI: Created %s database %s for site %s", engine, db_name, site_name)
-    request.session["flash_message"] = (
-        f"Database created. Save these credentials — the password will not be shown again.\n"
-        f"DSN: {dsn}"
+
+    # Return the page directly (not a redirect) so credentials are delivered only
+    # in the HTTP response body and never stored in the session cookie.
+    import json as _json
+    jobs = (
+        db.query(DeployJob)
+        .filter(DeployJob.site_id == site.id)
+        .order_by(DeployJob.id.desc())
+        .limit(10)
+        .all()
     )
-    return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+    databases = (
+        db.query(SiteDatabase)
+        .filter(SiteDatabase.site_id == site.id)
+        .order_by(SiteDatabase.id.asc())
+        .all()
+    )
+    env_text = ""
+    if site.env_vars:
+        try:
+            stored = _json.loads(site.env_vars)
+            env_text = "\n".join(f"{k}={v}" for k, v in stored.items())
+        except Exception:
+            env_text = ""
+
+    return templates.TemplateResponse(
+        request,
+        "site_detail.html",
+        {
+            "site": site,
+            "jobs": jobs,
+            "databases": databases,
+            "env_text": env_text,
+            "message": None,
+            "error": None,
+            "db_credentials": {
+                "db_name": db_name,
+                "db_user": db_user,
+                "db_password": password,
+                "dsn": dsn,
+                "host": host,
+                "port": port,
+                "engine": engine,
+            },
+        },
+    )
 
 
 @router.post("/sites/{site_name}/database/{db_id}/delete")

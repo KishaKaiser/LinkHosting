@@ -107,9 +107,25 @@
         </div>
         <button type="submit" class="btn btn-success">➕ Create Database</button>
     </form>
+
+    {% if db_credentials %}
+    <div class="alert alert-success" style="margin-top:1rem;">
+        <strong>✅ Database created.</strong> Save these credentials — the password will not be shown again.<br><br>
+        <table style="margin:0; width:auto;">
+            <tr><th style="text-align:right; padding-right:1rem;">Engine</th><td><code>{{ db_credentials.engine }}</code></td></tr>
+            <tr><th style="text-align:right; padding-right:1rem;">Database</th><td><code>{{ db_credentials.db_name }}</code></td></tr>
+            <tr><th style="text-align:right; padding-right:1rem;">User</th><td><code>{{ db_credentials.db_user }}</code></td></tr>
+            <tr><th style="text-align:right; padding-right:1rem;">Password</th><td><code>{{ db_credentials.db_password }}</code></td></tr>
+            <tr><th style="text-align:right; padding-right:1rem;">Host</th><td><code>{{ db_credentials.host }}</code></td></tr>
+            <tr><th style="text-align:right; padding-right:1rem;">Port</th><td><code>{{ db_credentials.port }}</code></td></tr>
+            <tr><th style="text-align:right; padding-right:1rem;">DSN</th><td><code>{{ db_credentials.dsn }}</code></td></tr>
+        </table>
+    </div>
+    {% endif %}
 </div>
 
-
+<div class="card">
+    <h2>Environment Variables (.env)</h2>
     <p class="text-muted" style="margin-bottom:0.75rem;">
         One <code>KEY=VALUE</code> pair per line. Lines starting with <code>#</code> are ignored.
         Changes take effect on the next deploy.
