@@ -14,9 +14,6 @@ POSTGRES_PORT = 5432
 MYSQL_HOST = "db-mysql"
 MYSQL_PORT = 3306
 
-# Superuser credentials (loaded from env)
-PG_ADMIN_DSN = settings.database_url  # reuse control-plane db host for simplicity
-
 
 def _random_password(length: int = 24) -> str:
     alphabet = string.ascii_letters + string.digits
@@ -25,10 +22,26 @@ def _random_password(length: int = 24) -> str:
 
 def _pg_connection():
     import psycopg2
+    return psycopg2.connect(settings.site_pg_dsn)
+
+
+def _mysql_connection():
+    import pymysql
     import re
-    # Parse DSN from settings to get superuser credentials
-    dsn = settings.database_url
-    return psycopg2.connect(dsn)
+    # Parse the DSN: mysql://user:pass@host:port
+    m = re.match(
+        r"mysql://(?P<user>[^:]+):(?P<password>[^@]*)@(?P<host>[^:/]+)(?::(?P<port>\d+))?",
+        settings.site_mysql_dsn,
+    )
+    if not m:
+        raise ValueError(f"Invalid SITE_MYSQL_DSN: {settings.site_mysql_dsn!r}")
+    return pymysql.connect(
+        host=m.group("host"),
+        port=int(m.group("port") or 3306),
+        user=m.group("user"),
+        password=m.group("password"),
+        autocommit=True,
+    )
 
 
 def create_postgres_db(db_name: str, db_user: str, password: str) -> None:
@@ -99,6 +112,46 @@ def drop_postgres_db(db_name: str, db_user: str) -> None:
         conn.close()
 
 
+def create_mysql_db(db_name: str, db_user: str, password: str) -> None:
+    """Create a MySQL/MariaDB database and user."""
+    if settings.dev_mode:
+        log.info("[DEV] Would create mysql db=%s user=%s", db_name, db_user)
+        return
+
+    conn = _mysql_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(f"CREATE DATABASE IF NOT EXISTS `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+        # Create user if it doesn't exist (compatible with MySQL 5.7+ and MariaDB)
+        cur.execute("SELECT COUNT(*) FROM mysql.user WHERE User = %s AND Host = '%%'", (db_user,))
+        if cur.fetchone()[0] == 0:
+            cur.execute(f"CREATE USER `{db_user}`@`%%` IDENTIFIED BY %s", (password,))
+        cur.execute(f"GRANT ALL PRIVILEGES ON `{db_name}`.* TO `{db_user}`@`%%`")
+        cur.execute("FLUSH PRIVILEGES")
+        log.info("Created mysql db=%s user=%s", db_name, db_user)
+    finally:
+        cur.close()
+        conn.close()
+
+
+def drop_mysql_db(db_name: str, db_user: str) -> None:
+    """Drop a MySQL/MariaDB database and user."""
+    if settings.dev_mode:
+        log.info("[DEV] Would drop mysql db=%s user=%s", db_name, db_user)
+        return
+
+    conn = _mysql_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
+        cur.execute("DROP USER IF EXISTS `%s`@`%%`", (db_user,))
+        cur.execute("FLUSH PRIVILEGES")
+        log.info("Dropped mysql db=%s user=%s", db_name, db_user)
+    finally:
+        cur.close()
+        conn.close()
+
+
 def db_identifiers(site_name: str) -> tuple[str, str]:
     """Return (db_name, db_user) for a site — deterministic, no secrets."""
     safe = site_name.replace("-", "_")
@@ -120,6 +173,10 @@ def provision_database(
         create_postgres_db(db_name, db_user, password)
         return db_name, db_user, password, POSTGRES_HOST, POSTGRES_PORT
 
+    if engine == DatabaseEngine.mysql:
+        create_mysql_db(db_name, db_user, password)
+        return db_name, db_user, password, MYSQL_HOST, MYSQL_PORT
+
     raise NotImplementedError(f"Engine {engine} not yet implemented")
 
 
@@ -130,5 +187,8 @@ def deprovision_database(
 ) -> None:
     if engine == DatabaseEngine.postgres:
         drop_postgres_db(db_name, db_user)
+    elif engine == DatabaseEngine.mysql:
+        drop_mysql_db(db_name, db_user)
     else:
         raise NotImplementedError(f"Engine {engine} not yet implemented")
+

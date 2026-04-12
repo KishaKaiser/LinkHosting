@@ -18,6 +18,24 @@ def test_create_database(client):
     assert "postgresql://" in data["dsn"]
 
 
+def test_create_mysql_database(client):
+    client.post("/sites", json={"name": "mysqlsite", "site_type": "python"})
+
+    resp = client.post(
+        "/sites/mysqlsite/database",
+        json={"engine": "mysql"},
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["db_name"] == "site_mysqlsite"
+    assert data["db_user"] == "user_mysqlsite"
+    assert data["engine"] == "mysql"
+    assert data["db_password"] != ""
+    assert "mysql://" in data["dsn"]
+    assert data["port"] == 3306
+    assert data["host"] == "db-mysql"
+
+
 def test_create_database_site_not_found(client):
     resp = client.post("/sites/nonexistent/database", json={"engine": "postgres"})
     assert resp.status_code == 404
@@ -28,6 +46,19 @@ def test_create_database_duplicate(client):
     client.post("/sites/dbsite/database", json={"engine": "postgres"})
     resp = client.post("/sites/dbsite/database", json={"engine": "postgres"})
     assert resp.status_code == 409
+
+
+def test_create_postgres_and_mysql_for_same_site(client):
+    """A site can have both a postgres and a mysql database."""
+    client.post("/sites", json={"name": "dualsite", "site_type": "python"})
+    r1 = client.post("/sites/dualsite/database", json={"engine": "postgres"})
+    r2 = client.post("/sites/dualsite/database", json={"engine": "mysql"})
+    assert r1.status_code == 201
+    assert r2.status_code == 201
+    dbs = client.get("/sites/dualsite/database").json()
+    assert len(dbs) == 2
+    engines = {d["engine"] for d in dbs}
+    assert engines == {"postgres", "mysql"}
 
 
 def test_list_databases(client):

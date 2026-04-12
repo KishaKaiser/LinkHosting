@@ -43,14 +43,18 @@ def create_database(
 
     from app.services.database import provision_database, db_identifiers
 
-    # Compute identifiers independently (not tainted by password)
-    db_name, db_user = db_identifiers(site.name)
-    host = "db-pg" if payload.engine == DatabaseEngine.postgres else "db-mysql"
-    port = 5432 if payload.engine == DatabaseEngine.postgres else 3306
+    log.info("Creating database for site %s (engine=%s)", site_name, payload.engine)
 
-    log.info("Creating database %s for site %s", db_name, site_name)
-
-    _, _, password, host, port = provision_database(site.name, payload.engine)
+    try:
+        db_name, db_user, password, host, port = provision_database(site.name, payload.engine)
+    except NotImplementedError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Engine '{payload.engine}' is not yet supported.",
+        )
+    except Exception as exc:
+        log.exception("Database provision failed for site %s", site_name)
+        raise HTTPException(status_code=500, detail=f"Database creation failed: {exc}")
 
     pw_hash = pwd_context.hash(password)
     site_db = SiteDatabase(
