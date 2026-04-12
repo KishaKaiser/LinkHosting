@@ -1,6 +1,6 @@
 """Database provisioning service."""
 import logging
-import re as _re
+import re
 import secrets
 import string
 
@@ -14,7 +14,7 @@ POSTGRES_PORT = 5432
 MYSQL_HOST = "db-mysql"
 MYSQL_PORT = 3306
 
-_SAFE_IDENTIFIER_RE = _re.compile(r"^[a-z0-9_]{1,64}$")
+_SAFE_IDENTIFIER_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 
 
 def _validate_identifier(name: str) -> None:
@@ -46,7 +46,7 @@ def _pg_connection():
 def _mysql_connection():
     import pymysql
     # Parse the DSN: mysql://user:pass@host:port
-    m = _re.match(
+    m = re.match(
         r"mysql://(?P<user>[^:]+):(?P<password>[^@]*)@(?P<host>[^:/]+)(?::(?P<port>\d+))?",
         settings.site_mysql_dsn,
     )
@@ -135,6 +135,10 @@ def create_mysql_db(db_name: str, db_user: str, password: str) -> None:
         log.info("[DEV] Would create mysql db=%s user=%s", db_name, db_user)
         return
 
+    # _validate_identifier() ensures db_name and db_user contain only
+    # [a-z0-9_] characters (no backticks, semicolons or other special chars),
+    # making backtick-quoted f-string interpolation safe. MySQL/MariaDB drivers
+    # do not support parameterized identifiers, so this is the standard approach.
     _validate_identifier(db_name)
     _validate_identifier(db_user)
 
@@ -160,6 +164,7 @@ def drop_mysql_db(db_name: str, db_user: str) -> None:
         log.info("[DEV] Would drop mysql db=%s user=%s", db_name, db_user)
         return
 
+    # See create_mysql_db for why backtick-quoted f-strings are used here.
     _validate_identifier(db_name)
     _validate_identifier(db_user)
 

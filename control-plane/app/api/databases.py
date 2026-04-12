@@ -52,7 +52,7 @@ def create_database(
             status_code=400,
             detail=f"Engine '{payload.engine}' is not yet supported.",
         )
-    except Exception as exc:
+    except Exception:
         log.exception("Database provision failed for site %s", site_name)
         raise HTTPException(
             status_code=500,
