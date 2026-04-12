@@ -43,5 +43,11 @@ class Settings(BaseSettings):
     # Persistent admin key override (written by the password-change UI)
     admin_key_override_file: str = "/data/admin_secret_key"
 
+    # GitHub Personal Access Token for cloning private repositories
+    # Can also be set via GITHUB_TOKEN environment variable.
+    github_token: str = ""
+    # Path where the token is persisted across container restarts (written by the settings UI)
+    github_token_override_file: str = "/data/github_token"
+
 
 settings = Settings()

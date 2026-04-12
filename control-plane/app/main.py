@@ -35,6 +35,14 @@ async def lifespan(app: FastAPI):
             settings.admin_secret_key = key
             log.info("Loaded admin key override from %s", override_file)
 
+    # Load persisted GitHub token override (written by the settings UI)
+    token_file = pathlib.Path(settings.github_token_override_file)
+    if token_file.exists():
+        token = token_file.read_text().strip()
+        if token:
+            settings.github_token = token
+            log.info("Loaded GitHub token override from %s", token_file)
+
     # Ensure the CoreDNS hosts file exists before the DNS container tries to
     # read it.  The file lives on a shared named volume (dns_hosts) that starts
     # empty on the first `docker compose up`.

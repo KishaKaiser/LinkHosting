@@ -39,4 +39,32 @@
         </div>
     </form>
 </div>
+
+<div class="card" style="max-width: 480px;">
+    <h2>GitHub Personal Access Token</h2>
+    <p class="text-muted" style="margin-bottom: 1rem;">
+        Provide a GitHub
+        <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">Personal Access Token</a>
+        (classic or fine-grained with <em>Contents: read</em> permission) to enable cloning
+        <strong>private</strong> repositories.  The token is stored at
+        <code>/data/github_token</code> (mode 600) and injected at clone time — it is never
+        written to logs.  Leave blank to clear the stored token and revert to public-only access.
+    </p>
+    {% if github_token_configured %}
+    <p class="alert alert-success" style="margin-bottom:0.75rem;">✅ A GitHub token is currently configured.</p>
+    {% else %}
+    <p class="text-muted" style="margin-bottom:0.75rem;">No token configured — only public repositories can be cloned.</p>
+    {% endif %}
+    <form method="post" action="/panel/settings/github-token">
+        <div class="form-group">
+            <label for="github_token">Personal Access Token</label>
+            <input type="password" id="github_token" name="github_token"
+                   autocomplete="off"
+                   placeholder="ghp_… or github_pat_… (leave blank to clear)" />
+        </div>
+        <div class="flex mt-1">
+            <button type="submit" class="btn btn-primary">Save Token</button>
+        </div>
+    </form>
+</div>
 {% endblock %}
