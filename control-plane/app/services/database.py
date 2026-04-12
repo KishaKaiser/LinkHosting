@@ -118,6 +118,9 @@ def create_mysql_db(db_name: str, db_user: str, password: str) -> None:
         log.info("[DEV] Would create mysql db=%s user=%s", db_name, db_user)
         return
 
+    _validate_identifier(db_name)
+    _validate_identifier(db_user)
+
     conn = _mysql_connection()
     cur = conn.cursor()
     try:
@@ -140,11 +143,14 @@ def drop_mysql_db(db_name: str, db_user: str) -> None:
         log.info("[DEV] Would drop mysql db=%s user=%s", db_name, db_user)
         return
 
+    _validate_identifier(db_name)
+    _validate_identifier(db_user)
+
     conn = _mysql_connection()
     cur = conn.cursor()
     try:
         cur.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
-        cur.execute("DROP USER IF EXISTS `%s`@`%%`", (db_user,))
+        cur.execute(f"DROP USER IF EXISTS `{db_user}`@`%%`")
         cur.execute("FLUSH PRIVILEGES")
         log.info("Dropped mysql db=%s user=%s", db_name, db_user)
     finally:
@@ -152,10 +158,25 @@ def drop_mysql_db(db_name: str, db_user: str) -> None:
         conn.close()
 
 
+import re as _re
+
+_SAFE_IDENTIFIER_RE = _re.compile(r"^[a-z0-9_]{1,64}$")
+
+
+def _validate_identifier(name: str) -> None:
+    """Raise ValueError if name is not a safe SQL identifier (alphanumeric + underscore)."""
+    if not _SAFE_IDENTIFIER_RE.match(name):
+        raise ValueError(f"Unsafe database identifier: {name!r}")
+
+
 def db_identifiers(site_name: str) -> tuple[str, str]:
     """Return (db_name, db_user) for a site — deterministic, no secrets."""
     safe = site_name.replace("-", "_")
-    return f"site_{safe}", f"user_{safe}"
+    db_name = f"site_{safe}"
+    db_user = f"user_{safe}"
+    _validate_identifier(db_name)
+    _validate_identifier(db_user)
+    return db_name, db_user
 
 
 def provision_database(
