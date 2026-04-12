@@ -5,6 +5,7 @@ Provides session-based login and HTML pages backed by Jinja2 templates.
 All UI routes live under /panel/.
 """
 import secrets
+import json as _json
 import logging
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import DeployJob, JobStatus, Site, SiteStatus, SiteType
+from app.models import DatabaseEngine, DeployJob, JobStatus, Site, SiteDatabase, SiteStatus, SiteType
 
 log = logging.getLogger(__name__)
 
@@ -277,6 +278,13 @@ async def site_detail(request: Request, site_name: str, db: Session = Depends(ge
         except Exception:
             env_text = ""
 
+    databases = (
+        db.query(SiteDatabase)
+        .filter(SiteDatabase.site_id == site.id)
+        .order_by(SiteDatabase.id.asc())
+        .all()
+    )
+
     return templates.TemplateResponse(
         request,
         "site_detail.html",
@@ -286,6 +294,7 @@ async def site_detail(request: Request, site_name: str, db: Session = Depends(ge
             "message": message,
             "error": error,
             "env_text": env_text,
+            "databases": databases,
         },
     )
 
@@ -579,7 +588,163 @@ async def issue_cert_ui(request: Request, site_name: str, db: Session = Depends(
     return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
 
-# ── Environment variables editor ──────────────────────────────────────────────
+# ── Database connections ──────────────────────────────────────────────────────
+
+@router.post("/sites/{site_name}/database")
+async def create_database_ui(
+    request: Request,
+    site_name: str,
+    engine: str = Form("postgres"),
+    db: Session = Depends(get_db),
+):
+    """Create a database connection for a site."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    try:
+        engine_enum = DatabaseEngine(engine)
+    except ValueError:
+        request.session["flash_error"] = f"Unknown database engine: {engine}"
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    existing = (
+        db.query(SiteDatabase)
+        .filter(SiteDatabase.site_id == site.id, SiteDatabase.engine == engine_enum)
+        .first()
+    )
+    if existing:
+        request.session["flash_error"] = (
+            f"A {engine} database already exists for this site."
+        )
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    from app.services.database import provision_database
+    from passlib.context import CryptContext
+
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+    try:
+        db_name, db_user, password, host, port = provision_database(site.name, engine_enum)
+    except NotImplementedError:
+        request.session["flash_error"] = f"Engine '{engine}' is not yet supported."
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+    except Exception as exc:
+        log.exception("UI: database provision failed for site %s", site_name)
+        request.session["flash_error"] = f"Database creation failed: {exc}"
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    pw_hash = pwd_context.hash(password)
+    site_db = SiteDatabase(
+        site_id=site.id,
+        db_name=db_name,
+        db_user=db_user,
+        db_password_hash=pw_hash,
+        engine=engine_enum,
+        host=host,
+        port=port,
+    )
+    db.add(site_db)
+    db.commit()
+    db.refresh(site_db)
+
+    if engine_enum == DatabaseEngine.postgres:
+        dsn = f"postgresql://{db_user}:{password}@{host}:{port}/{db_name}"
+    else:
+        raise NotImplementedError(f"DSN format for engine '{engine}' is not implemented.")
+
+    log.info("UI: Created %s database %s for site %s", engine, db_name, site_name)
+
+    # Return the page directly (not a redirect) so credentials are delivered only
+    # in the HTTP response body and never stored in the session cookie.
+    jobs = (
+        db.query(DeployJob)
+        .filter(DeployJob.site_id == site.id)
+        .order_by(DeployJob.id.desc())
+        .limit(10)
+        .all()
+    )
+    databases = (
+        db.query(SiteDatabase)
+        .filter(SiteDatabase.site_id == site.id)
+        .order_by(SiteDatabase.id.asc())
+        .all()
+    )
+    env_text = ""
+    if site.env_vars:
+        try:
+            stored = _json.loads(site.env_vars)
+            env_text = "\n".join(f"{k}={v}" for k, v in stored.items())
+        except Exception:
+            env_text = ""
+
+    return templates.TemplateResponse(
+        request,
+        "site_detail.html",
+        {
+            "site": site,
+            "jobs": jobs,
+            "databases": databases,
+            "env_text": env_text,
+            "message": None,
+            "error": None,
+            "db_credentials": {
+                "db_name": db_name,
+                "db_user": db_user,
+                "db_password": password,
+                "dsn": dsn,
+                "host": host,
+                "port": port,
+                "engine": engine,
+            },
+        },
+    )
+
+
+@router.post("/sites/{site_name}/database/{db_id}/delete")
+async def delete_database_ui(
+    request: Request,
+    site_name: str,
+    db_id: int,
+    db: Session = Depends(get_db),
+):
+    """Delete a database connection for a site."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    site_db = (
+        db.query(SiteDatabase)
+        .filter(SiteDatabase.id == db_id, SiteDatabase.site_id == site.id)
+        .first()
+    )
+    if not site_db:
+        request.session["flash_error"] = "Database not found."
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    from app.services.database import deprovision_database
+
+    try:
+        deprovision_database(site_db.db_name, site_db.db_user, site_db.engine)
+    except Exception as exc:
+        log.exception("UI: database deprovision failed for db_id %d", db_id)
+        request.session["flash_error"] = f"Database deletion failed: {exc}"
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    db.delete(site_db)
+    db.commit()
+    log.info("UI: Deleted database %s for site %s", site_db.db_name, site_name)
+    request.session["flash_message"] = f"Database '{site_db.db_name}' deleted."
+    return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
 
 @router.post("/sites/{site_name}/env")
 async def update_env_ui(
