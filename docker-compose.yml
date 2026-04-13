@@ -56,6 +56,25 @@ services:
       retries: 5
     logging: *default-logging
 
+  # ── Site databases — MySQL/MariaDB ────────────────────────────────────────
+  db-mysql:
+    image: mariadb:11
+    container_name: lh-db-mysql
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${SITE_MYSQL_ROOT_PASSWORD:?SITE_MYSQL_ROOT_PASSWORD must be set}
+      MARIADB_AUTO_UPGRADE: "1"
+    volumes:
+      - db_mysql_data:/var/lib/mysql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
   # ── Redis (job queue) ──────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
@@ -80,10 +99,16 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db-pg:
+        condition: service_healthy
+      db-mysql:
+        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
       DATABASE_URL:        postgresql://${DB_USER:-linkhosting}:${DB_PASSWORD}@db:5432/${DB_NAME:-linkhosting}
+      SITE_PG_DSN:         postgresql://${SITE_DB_USER:-postgres}:${SITE_DB_PASSWORD}@db-pg:5432/postgres
+      SITE_MYSQL_DSN:      mysql://root:${SITE_MYSQL_ROOT_PASSWORD}@db-mysql:3306
       DOCKER_SOCKET:       unix:///var/run/docker.sock
       DOCKER_NETWORK:      ${COMPOSE_PROJECT_NAME:-linkhosting}_sites
       SITES_BASE_DIR:      /srv/linkhosting/sites
@@ -230,6 +255,7 @@ services:
 volumes:
   db_data:
   db_pg_data:
+  db_mysql_data:
   sites_data:
   certs_data:
   sftp_data:

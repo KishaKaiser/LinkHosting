@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -77,10 +78,13 @@ class DatabaseEngine(str, enum.Enum):
 
 class SiteDatabase(Base):
     __tablename__ = "site_databases"
+    __table_args__ = (
+        UniqueConstraint("db_name", "engine", name="uq_site_databases_name_engine"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     site_id: Mapped[int] = mapped_column(Integer, ForeignKey("sites.id"), nullable=False)
-    db_name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    db_name: Mapped[str] = mapped_column(String(64), nullable=False)
     db_user: Mapped[str] = mapped_column(String(64), nullable=False)
     db_password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     engine: Mapped[DatabaseEngine] = mapped_column(

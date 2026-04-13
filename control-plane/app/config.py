@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     admin_token_expire_minutes: int = 60
     session_secret_key: str = "change-me-session-secret"
 
+    # Site databases — PostgreSQL admin DSN (used to provision per-site DBs on db-pg)
+    site_pg_dsn: str = "postgresql://postgres:postgres@db-pg:5432/postgres"
+
+    # Site databases — MySQL/MariaDB admin DSN (used to provision per-site DBs on db-mysql)
+    site_mysql_dsn: str = "mysql://root:root@db-mysql:3306"
+
     # Site domain suffix
     domain_suffix: str = "link"
 

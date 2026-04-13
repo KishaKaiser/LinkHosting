@@ -655,7 +655,7 @@ async def create_database_ui(
     if engine_enum == DatabaseEngine.postgres:
         dsn = f"postgresql://{db_user}:{password}@{host}:{port}/{db_name}"
     else:
-        raise NotImplementedError(f"DSN format for engine '{engine}' is not implemented.")
+        dsn = f"mysql://{db_user}:{password}@{host}:{port}/{db_name}"
 
     log.info("UI: Created %s database %s for site %s", engine, db_name, site_name)
 
