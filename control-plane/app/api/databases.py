@@ -41,7 +41,7 @@ def create_database(
             detail=f"A {payload.engine} database already exists for site '{site_name}'",
         )
 
-    from app.services.database import provision_database, db_identifiers
+    from app.services.database import provision_database, db_identifiers, deprovision_database
 
     log.info("Creating database for site %s (engine=%s)", site_name, payload.engine)
 
@@ -76,7 +76,6 @@ def create_database(
     except Exception:
         db.rollback()
         log.exception("Failed to save database record for site %s", site_name)
-        from app.services.database import deprovision_database
         try:
             deprovision_database(db_name, db_user, payload.engine)
         except Exception:

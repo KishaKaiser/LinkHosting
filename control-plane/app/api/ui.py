@@ -623,7 +623,7 @@ async def create_database_ui(
         )
         return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
-    from app.services.database import provision_database
+    from app.services.database import provision_database, deprovision_database
     from passlib.context import CryptContext
 
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -655,7 +655,6 @@ async def create_database_ui(
     except Exception as exc:
         db.rollback()
         log.exception("UI: failed to save database record for site %s", site_name)
-        from app.services.database import deprovision_database
         try:
             deprovision_database(db_name, db_user, engine_enum)
         except Exception:
