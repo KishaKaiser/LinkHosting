@@ -648,9 +648,20 @@ async def create_database_ui(
         host=host,
         port=port,
     )
-    db.add(site_db)
-    db.commit()
-    db.refresh(site_db)
+    try:
+        db.add(site_db)
+        db.commit()
+        db.refresh(site_db)
+    except Exception as exc:
+        db.rollback()
+        log.exception("UI: failed to save database record for site %s", site_name)
+        from app.services.database import deprovision_database
+        try:
+            deprovision_database(db_name, db_user, engine_enum)
+        except Exception:
+            log.exception("UI: cleanup deprovision also failed for %s", db_name)
+        request.session["flash_error"] = f"Database creation failed: {exc}"
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
     if engine_enum == DatabaseEngine.postgres:
         dsn = f"postgresql://{db_user}:{password}@{host}:{port}/{db_name}"
