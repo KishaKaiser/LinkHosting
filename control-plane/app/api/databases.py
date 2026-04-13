@@ -41,7 +41,7 @@ def create_database(
             detail=f"A {payload.engine} database already exists for site '{site_name}'",
         )
 
-    from app.services.database import provision_database, db_identifiers
+    from app.services.database import provision_database, db_identifiers, deprovision_database
 
     log.info("Creating database for site %s (engine=%s)", site_name, payload.engine)
 
@@ -69,9 +69,21 @@ def create_database(
         host=host,
         port=port,
     )
-    db.add(site_db)
-    db.commit()
-    db.refresh(site_db)
+    try:
+        db.add(site_db)
+        db.commit()
+        db.refresh(site_db)
+    except Exception:
+        db.rollback()
+        log.exception("Failed to save database record for site %s", site_name)
+        try:
+            deprovision_database(db_name, db_user, payload.engine)
+        except Exception:
+            log.exception("Cleanup deprovision also failed for %s", db_name)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save {payload.engine} database record. Check server logs for details.",
+        )
 
     if payload.engine == DatabaseEngine.postgres:
         dsn = f"postgresql://{db_user}:{password}@{host}:{port}/{db_name}"

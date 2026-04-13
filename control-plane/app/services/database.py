@@ -149,8 +149,8 @@ def create_mysql_db(db_name: str, db_user: str, password: str) -> None:
         # Create user if it doesn't exist (compatible with MySQL 5.7+ and MariaDB)
         cur.execute("SELECT COUNT(*) FROM mysql.user WHERE User = %s AND Host = '%%'", (db_user,))
         if cur.fetchone()[0] == 0:
-            cur.execute(f"CREATE USER `{db_user}`@`%%` IDENTIFIED BY %s", (password,))
-        cur.execute(f"GRANT ALL PRIVILEGES ON `{db_name}`.* TO `{db_user}`@`%`")
+            cur.execute(f"CREATE USER `{db_user}`@'%%' IDENTIFIED BY %s", (password,))
+        cur.execute(f"GRANT ALL PRIVILEGES ON `{db_name}`.* TO `{db_user}`@'%'")
         cur.execute("FLUSH PRIVILEGES")
         log.info("Created mysql db=%s user=%s", db_name, db_user)
     finally:
@@ -172,7 +172,7 @@ def drop_mysql_db(db_name: str, db_user: str) -> None:
     cur = conn.cursor()
     try:
         cur.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
-        cur.execute(f"DROP USER IF EXISTS `{db_user}`@`%`")
+        cur.execute(f"DROP USER IF EXISTS `{db_user}`@'%'")
         cur.execute("FLUSH PRIVILEGES")
         log.info("Dropped mysql db=%s user=%s", db_name, db_user)
     finally:
