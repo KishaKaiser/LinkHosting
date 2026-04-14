@@ -1,0 +1,186 @@
+"""Tests for the Settings run-migrations endpoint and site run-command endpoint."""
+import os
+import subprocess
+
+import pytest
+
+os.environ["DEV_MODE"] = "true"
+os.environ["DATABASE_URL"] = "sqlite:///./test_ui_commands.db"
+os.environ["ADMIN_SECRET_KEY"] = "test-secret"
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _authenticated_client(client):
+    """Log in and return the same client (session cookie set in-place)."""
+    client.post("/panel/login", data={"password": "test-secret"})
+    return client
+
+
+def _create_site_via_api(client, name, site_type="node"):
+    """Create a site via the REST API and return its JSON."""
+    resp = client.post("/sites", json={"name": name, "site_type": site_type})
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+# ── run-migrations ────────────────────────────────────────────────────────────
+
+def test_run_migrations_unauthenticated(client):
+    """Unauthenticated POST to run-migrations should redirect to login."""
+    resp = client.post("/panel/settings/run-migrations", follow_redirects=False)
+    assert resp.status_code == 302
+    assert "/panel/login" in resp.headers["location"]
+
+
+def test_run_migrations_success(client, monkeypatch):
+    """Successful migration run should flash a success message."""
+    _authenticated_client(client)
+
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        return subprocess.CompletedProcess(
+            args=args, returncode=0, stdout="No new migrations.", stderr=""
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    resp = client.post("/panel/settings/run-migrations", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "Migrations applied successfully" in resp.text
+    assert "alembic" in captured["args"]
+    assert "upgrade" in captured["args"]
+    assert "head" in captured["args"]
+
+
+def test_run_migrations_failure(client, monkeypatch):
+    """Failed migration should flash an error message."""
+    _authenticated_client(client)
+
+    def fake_run(args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args, returncode=1, stdout="", stderr="ERROR: migration failed"
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    resp = client.post("/panel/settings/run-migrations", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "Migration failed" in resp.text
+
+
+def test_run_migrations_timeout(client, monkeypatch):
+    """Timeout during migration should flash an error."""
+    _authenticated_client(client)
+
+    def fake_run(args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=args, timeout=120)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    resp = client.post("/panel/settings/run-migrations", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "timed out" in resp.text.lower()
+
+
+# ── run-command ───────────────────────────────────────────────────────────────
+
+def test_run_command_unauthenticated(client):
+    resp = client.post(
+        "/panel/sites/nodesite/run-command",
+        data={"preset": "npm install"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "/panel/login" in resp.headers["location"]
+
+
+def test_run_command_site_not_found(client):
+    _authenticated_client(client)
+    resp = client.post(
+        "/panel/sites/no-such-site/run-command",
+        data={"preset": "npm install"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "/panel/" in resp.headers["location"]
+
+
+def test_run_command_non_node_site(client):
+    """Build commands are only supported for Node.js sites."""
+    _authenticated_client(client)
+    _create_site_via_api(client, "staticsite2", site_type="static")
+
+    resp = client.post(
+        "/panel/sites/staticsite2/run-command",
+        data={"preset": "npm install"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "only supported for Node.js" in resp.text
+
+
+def test_run_command_no_container(client):
+    """run-command when no container is running should flash an error."""
+    _authenticated_client(client)
+    _create_site_via_api(client, "nodenocontainer2", site_type="node")
+    # A freshly-created site has no container_id
+
+    resp = client.post(
+        "/panel/sites/nodenocontainer2/run-command",
+        data={"preset": "npm install"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "not running" in resp.text.lower()
+
+
+def test_run_command_preset_dev_mode(client):
+    """In dev mode a preset command should succeed without calling Docker."""
+    _authenticated_client(client)
+    _create_site_via_api(client, "nodetestdev2", site_type="node")
+
+    # Simulate a running container by patching deploy
+    client.post("/sites/nodetestdev2/deploy")
+
+    resp = client.post(
+        "/panel/sites/nodetestdev2/run-command",
+        data={"preset": "npm install"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    # dev mode flashes a "[DEV] Would run: …" message
+    assert "npm" in resp.text.lower()
+
+
+def test_run_command_custom_invalid(client):
+    """Invalid shell syntax in custom command should flash an error."""
+    _authenticated_client(client)
+    _create_site_via_api(client, "nodecustom2", site_type="node")
+    client.post("/sites/nodecustom2/deploy")
+
+    # Unclosed quote → shlex parse error
+    resp = client.post(
+        "/panel/sites/nodecustom2/run-command",
+        data={"custom": "npm run 'unclosed"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "Invalid command" in resp.text
+
+
+def test_run_command_no_selection(client):
+    """Posting with neither preset nor custom should flash 'No command selected'."""
+    _authenticated_client(client)
+    _create_site_via_api(client, "nodenone2", site_type="node")
+    client.post("/sites/nodenone2/deploy")
+
+    resp = client.post(
+        "/panel/sites/nodenone2/run-command",
+        data={"preset": "", "custom": ""},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "No command selected" in resp.text

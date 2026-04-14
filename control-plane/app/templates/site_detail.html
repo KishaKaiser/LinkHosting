@@ -7,10 +7,10 @@
 </div>
 
 {% if message %}
-<div class="alert alert-success">{{ message }}</div>
+<div class="alert alert-success" style="white-space: pre-wrap;">{{ message }}</div>
 {% endif %}
 {% if error %}
-<div class="alert alert-error">{{ error }}</div>
+<div class="alert alert-error" style="white-space: pre-wrap;">{{ error }}</div>
 {% endif %}
 
 <div class="card">
@@ -139,6 +139,43 @@
         <button type="submit" class="btn btn-primary">💾 Save Variables</button>
     </form>
 </div>
+
+{% if site.site_type.value == 'node' %}
+<div class="card">
+    <h2>Build Commands</h2>
+    <p class="text-muted" style="margin-bottom:0.75rem;">
+        Run npm commands inside the running container (e.g. install dependencies,
+        compile TypeScript, run database migrations).
+        The site must be deployed before commands can be executed.
+    </p>
+    <form method="post" action="/panel/sites/{{ site.name }}/run-command"
+          style="display:flex; flex-direction:column; gap:0.75rem; max-width:480px;">
+        <div class="form-group" style="margin-bottom:0;">
+            <label for="preset-cmd">Preset command</label>
+            <select name="preset" id="preset-cmd">
+                <option value="">— choose a preset —</option>
+                <option value="npm install">npm install</option>
+                <option value="npm run build">npm run build</option>
+                <option value="npm run migrate">npm run migrate</option>
+                <option value="npm run test">npm run test</option>
+                <option value="npm run start">npm run start</option>
+            </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+            <label for="custom-cmd">
+                Or enter a custom command
+                <span class="text-muted" style="font-weight:normal;">(overrides preset)</span>
+            </label>
+            <input type="text" id="custom-cmd" name="custom"
+                   placeholder="e.g. npx prisma migrate deploy"
+                   style="font-family:monospace;" />
+        </div>
+        <div>
+            <button type="submit" class="btn btn-primary">▶ Run Command</button>
+        </div>
+    </form>
+</div>
+{% endif %}
 
 {% if jobs %}
 <div class="card">

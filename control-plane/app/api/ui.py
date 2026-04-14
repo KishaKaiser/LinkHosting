@@ -503,6 +503,50 @@ async def change_password_post(
 
 # ── GitHub token ──────────────────────────────────────────────────────────────
 
+# ── Database migrations ───────────────────────────────────────────────────────
+
+@router.post("/settings/run-migrations")
+async def run_migrations_post(request: Request):
+    """Run Alembic database migrations (alembic upgrade head)."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    import subprocess
+    import pathlib
+
+    # alembic.ini lives at /app/alembic.ini inside the container (WORKDIR=/app)
+    alembic_ini = pathlib.Path(__file__).parent.parent.parent / "alembic.ini"
+
+    try:
+        result = subprocess.run(
+            ["alembic", "-c", str(alembic_ini), "upgrade", "head"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode == 0:
+            log.info("DB migrations succeeded:\n%s", output)
+            request.session["flash_message"] = (
+                "Migrations applied successfully."
+                + (f"\n\n{output}" if output else "")
+            )
+        else:
+            log.error("DB migrations failed (rc=%d):\n%s", result.returncode, output)
+            request.session["flash_error"] = (
+                f"Migration failed (exit {result.returncode})."
+                + (f"\n\n{output}" if output else "")
+            )
+    except subprocess.TimeoutExpired:
+        request.session["flash_error"] = "Migration timed out after 120 seconds."
+    except Exception as exc:
+        log.exception("Migration run error")
+        request.session["flash_error"] = f"Migration error: {exc}"
+
+    return RedirectResponse("/panel/settings", status_code=302)
+
+
 @router.post("/settings/github-token")
 async def save_github_token(
     request: Request,
@@ -805,4 +849,109 @@ async def update_env_ui(
         f"Environment variables saved ({len(env_vars)} variable(s)). "
         "Redeploy the site for changes to take effect."
     )
+    return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+
+# ── Run npm / shell command in a site container ───────────────────────────────
+
+# Commands allowed via the predefined dropdown — must not contain shell
+# metacharacters so they are safe to pass as a list to docker exec.
+_ALLOWED_PRESET_COMMANDS: dict[str, list[str]] = {
+    "npm install":     ["npm", "install"],
+    "npm run build":   ["npm", "run", "build"],
+    "npm run migrate": ["npm", "run", "migrate"],
+    "npm run start":   ["npm", "run", "start"],
+    "npm run test":    ["npm", "run", "test"],
+}
+
+# Working directory inside the container where site files are mounted.
+_CONTAINER_WORKDIR = "/var/www/html"
+
+
+def _exec_in_container(container_id: str, cmd: list[str]) -> tuple[int, str]:
+    """Run *cmd* inside *container_id* and return (exit_code, combined_output)."""
+    import docker
+    client = docker.from_env()
+    container = client.containers.get(container_id)
+    exit_code, output = container.exec_run(
+        cmd,
+        workdir=_CONTAINER_WORKDIR,
+        demux=False,
+        stream=False,
+    )
+    text = output.decode("utf-8", errors="replace") if output else ""
+    return exit_code, text
+
+
+@router.post("/sites/{site_name}/run-command")
+async def run_command_ui(
+    request: Request,
+    site_name: str,
+    preset: str = Form(""),
+    custom: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Execute an npm command (or custom shell command) inside the site's container."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    if site.site_type != SiteType.node:
+        request.session["flash_error"] = (
+            "Build commands are only supported for Node.js sites."
+        )
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    if not site.container_id:
+        request.session["flash_error"] = (
+            "The site container is not running. Deploy the site first."
+        )
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    # Resolve command list
+    custom = custom.strip()
+    if custom:
+        import shlex
+        try:
+            cmd = shlex.split(custom)
+        except ValueError as exc:
+            request.session["flash_error"] = f"Invalid command: {exc}"
+            return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+    elif preset and preset in _ALLOWED_PRESET_COMMANDS:
+        cmd = _ALLOWED_PRESET_COMMANDS[preset]
+    else:
+        request.session["flash_error"] = "No command selected."
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    if settings.dev_mode:
+        log.info("[DEV] Would run %s in container %s", cmd, site.container_id)
+        request.session["flash_message"] = f"[DEV] Would run: {' '.join(cmd)}"
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    try:
+        exit_code, output = _exec_in_container(site.container_id, cmd)
+        display_cmd = " ".join(cmd)
+        if exit_code == 0:
+            log.info("Command succeeded for site %s: %s", site_name, display_cmd)
+            msg = f"✅ Command '{display_cmd}' finished successfully."
+            if output:
+                msg += f"\n\n{output}"
+            request.session["flash_message"] = msg
+        else:
+            log.warning(
+                "Command failed for site %s (rc=%d): %s\n%s",
+                site_name, exit_code, display_cmd, output,
+            )
+            msg = f"Command '{display_cmd}' exited with code {exit_code}."
+            if output:
+                msg += f"\n\n{output}"
+            request.session["flash_error"] = msg
+    except Exception as exc:
+        log.exception("run-command error for site %s", site_name)
+        request.session["flash_error"] = f"Command execution failed: {exc}"
+
     return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
