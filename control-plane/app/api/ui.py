@@ -548,7 +548,8 @@ async def run_migrations_post(request: Request):
 
 
 @router.post("/settings/github-token")
-async def save_github_token(    request: Request,
+async def save_github_token(
+    request: Request,
     github_token: str = Form(...),
 ):
     """Save (or clear) the GitHub Personal Access Token used to clone private repos."""
