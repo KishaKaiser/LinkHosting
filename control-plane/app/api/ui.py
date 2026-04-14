@@ -624,9 +624,7 @@ async def create_database_ui(
         return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
     from app.services.database import provision_database, deprovision_database
-    from passlib.context import CryptContext
-
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    from app.utils.hashing import hash_db_password
 
     try:
         db_name, db_user, password, host, port = provision_database(site.name, engine_enum)
@@ -638,7 +636,7 @@ async def create_database_ui(
         request.session["flash_error"] = f"Database creation failed: {exc}"
         return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
-    pw_hash = pwd_context.hash(password)
+    pw_hash = hash_db_password(password)
     site_db = SiteDatabase(
         site_id=site.id,
         db_name=db_name,

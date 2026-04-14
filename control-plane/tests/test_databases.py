@@ -1,5 +1,30 @@
 """Tests for the databases API."""
+import bcrypt as _bcrypt
 import pytest
+
+from app.utils.hashing import hash_db_password, verify_db_password, pwd_context
+
+
+def test_hash_db_password_long_password():
+    """Passwords longer than 72 bytes must be hashable without error (argon2 has no byte limit)."""
+    long_password = "x" * 80  # 80 bytes — bcrypt would raise ValueError here
+    hashed = hash_db_password(long_password)
+    assert hashed.startswith("$argon2")
+    assert verify_db_password(long_password, hashed)
+
+
+def test_hash_db_password_verify_wrong():
+    """Incorrect password must not verify."""
+    hashed = hash_db_password("correct")
+    assert not verify_db_password("wrong", hashed)
+
+
+def test_pwd_context_verifies_bcrypt_hash():
+    """Existing bcrypt hashes stored in the database must still verify (backward compat)."""
+    short_pw = "short_password"
+    bcrypt_hash = _bcrypt.hashpw(short_pw.encode(), _bcrypt.gensalt()).decode()
+    assert pwd_context.verify(short_pw, bcrypt_hash)
+
 
 
 def test_create_database(client):
