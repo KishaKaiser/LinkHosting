@@ -1,4 +1,5 @@
 """Tests for the databases API."""
+import bcrypt as _bcrypt
 import pytest
 
 from app.utils.hashing import hash_db_password, verify_db_password, pwd_context
@@ -20,7 +21,6 @@ def test_hash_db_password_verify_wrong():
 
 def test_pwd_context_verifies_bcrypt_hash():
     """Existing bcrypt hashes stored in the database must still verify (backward compat)."""
-    import bcrypt as _bcrypt
     short_pw = "short_password"
     bcrypt_hash = _bcrypt.hashpw(short_pw.encode(), _bcrypt.gensalt()).decode()
     assert pwd_context.verify(short_pw, bcrypt_hash)
