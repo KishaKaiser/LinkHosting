@@ -336,49 +336,63 @@ echo -e "  Clients must point their DNS resolver at this IP to resolve site name
 echo ""
 prompt HOST_LAN_IP "Server LAN IP" "${DETECTED_IP:-192.168.1.1}"
 
-# ── Port-53 DNS forwarder ─────────────────────────────────────────────────────
-# CoreDNS defaults to host port 5353 to avoid conflicts with systemd-resolved.
-# Standard DNS clients (browsers, routers) use port 53, so we ask whether to
-# start the optional dns-forwarder sidecar that listens on port 53.
-ENABLE_DNS53=false
-echo ""
-echo -e "  ${BOLD}DNS port-53 forwarding:${RESET}"
-echo -e "  By default CoreDNS listens on host port ${CYAN}5353${RESET}."
-echo -e "  Enable the ${CYAN}dns-forwarder${RESET} container to also listen on port ${CYAN}53${RESET},"
-echo -e "  so that routers and devices can use this server as a standard DNS resolver."
-echo -e "  ${YELLOW}⚠  Port 53 must be free on this host (disable systemd-resolved if needed).${RESET}"
-echo ""
-if [[ "$NON_INTERACTIVE" != "true" ]]; then
-  read -r -p "  Enable port-53 DNS forwarding? [y/N]: " _dns53_choice
-  [[ "${_dns53_choice,,}" == "y" ]] && ENABLE_DNS53=true
-fi
+# ── Port-53 DNS configuration ─────────────────────────────────────────────────
+# CoreDNS needs host port 53 to act as a standard DNS resolver for routers and
+# devices.  On Ubuntu/Debian, systemd-resolved binds a stub listener to port 53,
+# which blocks Docker from binding there.
+#
+# We automatically detect this conflict and disable only the stub listener
+# (DNSStubListener=no) — systemd-resolved itself keeps running so the host
+# retains DNS resolution while Docker claims port 53.
+#
+# This runs once at install time; subsequent `docker compose up` calls work
+# without any further manual steps.
 
-if [[ "$ENABLE_DNS53" == "true" && "$PLATFORM" == "linux" ]]; then
-  # Check if something is already listening on port 53.
-  if ss -ulnp 2>/dev/null | grep -q ':53[^0-9]' || ss -tlnp 2>/dev/null | grep -q ':53[^0-9]'; then
-    echo ""
-    warn "A service is already listening on port 53 (likely systemd-resolved)."
-    echo -e "  To free the port, run:"
-    echo -e "    ${CYAN}sudo systemctl disable --now systemd-resolved${RESET}"
-    echo -e "    ${CYAN}sudo rm /etc/resolv.conf${RESET}"
-    echo -e "    ${CYAN}echo 'nameserver 1.1.1.1' | sudo tee /etc/resolv.conf${RESET}"
-    echo ""
-    if [[ "$NON_INTERACTIVE" != "true" ]]; then
-      read -r -p "  Disable systemd-resolved now and continue? [y/N]: " _dis_resolved
-      if [[ "${_dis_resolved,,}" == "y" ]]; then
-        sudo systemctl disable --now systemd-resolved 2>/dev/null && \
-          sudo rm -f /etc/resolv.conf && \
-          echo "nameserver 1.1.1.1" | sudo tee /etc/resolv.conf >/dev/null
-        ok "systemd-resolved disabled; /etc/resolv.conf updated"
-      else
-        warn "Skipping port-53 forwarding — port 53 is still in use."
-        ENABLE_DNS53=false
-      fi
-    else
-      warn "Non-interactive mode: skipping systemd-resolved disable. Set DNS_PORT=53 manually."
-      ENABLE_DNS53=false
-    fi
+_free_port_53_if_needed() {
+  # Returns 0 if port 53 is now free (or was already free), 1 on failure.
+  if ! ss -ulnp 2>/dev/null | grep -q ':53[^0-9]' && \
+     ! ss -tlnp 2>/dev/null | grep -q ':53[^0-9]'; then
+    return 0  # port is already free
   fi
+
+  if [[ "$PLATFORM" != "linux" ]]; then
+    warn "Port 53 is in use. Free it manually before starting the stack."
+    return 1
+  fi
+
+  # Preferred fix: disable only the stub listener so systemd-resolved keeps
+  # running and the host's own DNS resolution is unaffected.
+  if command -v systemctl &>/dev/null && systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+    info "systemd-resolved stub listener detected on port 53 — disabling stub listener…"
+    sudo mkdir -p /etc/systemd/resolved.conf.d
+    sudo tee /etc/systemd/resolved.conf.d/no-stub.conf >/dev/null <<'CONF'
+# Created by LinkHosting installer — frees port 53 for CoreDNS while keeping
+# systemd-resolved active for host DNS resolution.
+[Resolve]
+DNSStubListener=no
+CONF
+    sudo systemctl restart systemd-resolved 2>/dev/null || true
+    # Give the service a moment to release the port.
+    sleep 1
+    if ss -ulnp 2>/dev/null | grep -q ':53[^0-9]' || ss -tlnp 2>/dev/null | grep -q ':53[^0-9]'; then
+      warn "Port 53 still occupied after restarting systemd-resolved."
+      warn "Free port 53 manually and re-run the installer."
+      return 1
+    fi
+    ok "systemd-resolved stub listener disabled — port 53 is now free"
+    return 0
+  fi
+
+  warn "Port 53 is in use by an unknown service. Free it manually and re-run."
+  return 1
+}
+
+echo ""
+info "Checking port 53 availability for CoreDNS…"
+if _free_port_53_if_needed; then
+  ok "Port 53 is available for CoreDNS"
+else
+  warn "CoreDNS may fail to start. You can still query DNS on port 5353 after the stack is up."
 fi
 
 # Generate session cookie signing key
@@ -407,8 +421,6 @@ if [[ "$INSTALL_SERVICE" == "true" ]]; then
   else
     SERVICE_FILE="/etc/systemd/system/linkhosting.service"
     info "Installing systemd service -> $SERVICE_FILE"
-    DNS_PROFILE_FLAG=""
-    [[ "$ENABLE_DNS53" == "true" ]] && DNS_PROFILE_FLAG="--profile dns-forwarder "
     sudo tee "$SERVICE_FILE" >/dev/null <<UNIT
 [Unit]
 Description=LinkHosting Docker Compose Stack
@@ -419,7 +431,7 @@ Requires=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${REPO_ROOT}
-ExecStart=/usr/bin/docker compose ${DNS_PROFILE_FLAG}up -d --remove-orphans
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
 ExecStop=/usr/bin/docker compose down
 TimeoutStartSec=300
 
@@ -436,11 +448,7 @@ fi
 echo ""
 echo "────────────────────────────────────────────────────────────────"
 info "Starting LinkHosting stack (first run may take a few minutes)..."
-if [[ "$ENABLE_DNS53" == "true" ]]; then
-  "${DOCKER_COMPOSE[@]}" --profile dns-forwarder up -d --build
-else
-  "${DOCKER_COMPOSE[@]}" up -d --build
-fi
+"${DOCKER_COMPOSE[@]}" up -d --build
 
 # ── Worker readiness check ────────────────────────────────────────────────────
 echo ""
@@ -513,15 +521,10 @@ else
   echo -e "  ${YELLOW}⚠  HOST_LAN_IP is not set — DNS records will NOT be created for new sites.${RESET}"
   echo -e "     Set HOST_LAN_IP in ${REPO_ROOT}/.env and restart: docker compose up -d"
 fi
-if [[ "$ENABLE_DNS53" == "true" ]]; then
-  echo -e "  Port-53 forwarder ${GREEN}enabled${RESET} — point your router's DNS to ${CYAN}${HOST_LAN_IP}${RESET}"
+echo -e "  CoreDNS is listening on host port ${CYAN}53${RESET}."
+if [[ -n "$HOST_LAN_IP" ]]; then
+  echo -e "  Point your router's DNS to ${CYAN}${HOST_LAN_IP}${RESET} to resolve *.${DOMAIN_SUFFIX} names."
   echo -e "  Verify: ${CYAN}dig mysite.${DOMAIN_SUFFIX} @${HOST_LAN_IP}${RESET}"
-else
-  echo -e "  CoreDNS is listening on host port ${CYAN}5353${RESET} (not 53)."
-  echo -e "  To use standard DNS clients, enable port-53 forwarding:"
-  echo -e "    ${CYAN}docker compose --profile dns-forwarder up -d${RESET}"
-  echo -e "  Or query on port 5353 directly:"
-  echo -e "    ${CYAN}dig mysite.${DOMAIN_SUFFIX} @${HOST_LAN_IP} -p 5353${RESET}"
 fi
 echo ""
 echo -e "  ${BOLD}Next steps:${RESET}"
