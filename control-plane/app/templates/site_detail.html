@@ -148,6 +148,26 @@
         compile TypeScript, run database migrations).
         The site must be deployed before commands can be executed.
     </p>
+
+    <form method="post" action="/panel/sites/{{ site.name }}/set-build-dir"
+          style="display:flex; flex-direction:column; gap:0.5rem; max-width:480px; margin-bottom:1.25rem;">
+        <div class="form-group" style="margin-bottom:0;">
+            <label for="build-dir">
+                Build / root directory
+                <span class="text-muted" style="font-weight:normal;">
+                    (relative path inside <code>/var/www/html</code>, e.g. <code>frontend</code>)
+                </span>
+            </label>
+            <input type="text" id="build-dir" name="build_dir"
+                   value="{{ site.build_dir or '' }}"
+                   placeholder="Leave empty to use /var/www/html (default)"
+                   style="font-family:monospace;" />
+        </div>
+        <div>
+            <button type="submit" class="btn btn-secondary">💾 Save Directory</button>
+        </div>
+    </form>
+
     <form method="post" action="/panel/sites/{{ site.name }}/run-command"
           style="display:flex; flex-direction:column; gap:0.75rem; max-width:480px;">
         <div class="form-group" style="margin-bottom:0;">

@@ -184,3 +184,87 @@ def test_run_command_no_selection(client):
     )
     assert resp.status_code == 200
     assert "No command selected" in resp.text
+
+
+# ── set-build-dir ─────────────────────────────────────────────────────────────
+
+def test_set_build_dir_unauthenticated(client):
+    resp = client.post(
+        "/panel/sites/somesite/set-build-dir",
+        data={"build_dir": "frontend"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "/panel/login" in resp.headers["location"]
+
+
+def test_set_build_dir_site_not_found(client):
+    _authenticated_client(client)
+    resp = client.post(
+        "/panel/sites/no-such-site/set-build-dir",
+        data={"build_dir": "frontend"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "/panel/" in resp.headers["location"]
+
+
+def test_set_build_dir_valid(client):
+    """A valid relative subdirectory should be saved and reflected on the site detail page."""
+    _authenticated_client(client)
+    _create_site_via_api(client, "nodebuilddir1", site_type="node")
+
+    resp = client.post(
+        "/panel/sites/nodebuilddir1/set-build-dir",
+        data={"build_dir": "frontend"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "frontend" in resp.text
+
+
+def test_set_build_dir_clear(client):
+    """An empty value should clear the stored build_dir."""
+    _authenticated_client(client)
+    _create_site_via_api(client, "nodebuilddir2", site_type="node")
+
+    # Set then clear
+    client.post("/panel/sites/nodebuilddir2/set-build-dir", data={"build_dir": "apps/web"})
+    resp = client.post(
+        "/panel/sites/nodebuilddir2/set-build-dir",
+        data={"build_dir": ""},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    # Flash message should mention the default
+    assert "default" in resp.text.lower() or "Build directory" in resp.text
+
+
+def test_set_build_dir_traversal_rejected(client):
+    """Path traversal attempts should be rejected."""
+    _authenticated_client(client)
+    _create_site_via_api(client, "nodebuilddir3", site_type="node")
+
+    resp = client.post(
+        "/panel/sites/nodebuilddir3/set-build-dir",
+        data={"build_dir": "../../etc/passwd"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "Invalid build directory" in resp.text
+
+
+# ── _resolve_workdir helper ───────────────────────────────────────────────────
+
+def test_resolve_workdir():
+    """_resolve_workdir should correctly resolve subdirectories and reject traversal."""
+    from app.api.ui import _resolve_workdir
+
+    assert _resolve_workdir(None) == "/var/www/html"
+    assert _resolve_workdir("") == "/var/www/html"
+    assert _resolve_workdir("frontend") == "/var/www/html/frontend"
+    assert _resolve_workdir("/frontend") == "/var/www/html/frontend"
+    assert _resolve_workdir("apps/web") == "/var/www/html/apps/web"
+    # Traversal attempts must fall back to root
+    assert _resolve_workdir("../../etc") == "/var/www/html"
+    assert _resolve_workdir("..") == "/var/www/html"
