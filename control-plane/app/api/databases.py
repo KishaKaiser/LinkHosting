@@ -2,13 +2,13 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from app.auth import require_bearer_token
 from app.database import get_db
 from app.models import DatabaseEngine, Site, SiteDatabase
 from app.schemas import DatabaseCreate, DatabaseCredentials, DatabaseOut
+from app.utils.hashing import hash_db_password
 
 log = logging.getLogger(__name__)
 router = APIRouter(
@@ -16,8 +16,6 @@ router = APIRouter(
     tags=["databases"],
     dependencies=[Depends(require_bearer_token)],
 )
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 @router.post("", response_model=DatabaseCredentials, status_code=201)
@@ -59,7 +57,7 @@ def create_database(
             detail=f"Failed to create {payload.engine} database. Check server logs for details.",
         )
 
-    pw_hash = pwd_context.hash(password)
+    pw_hash = hash_db_password(password)
     site_db = SiteDatabase(
         site_id=site.id,
         db_name=db_name,
