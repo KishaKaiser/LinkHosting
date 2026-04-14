@@ -867,20 +867,103 @@ _ALLOWED_PRESET_COMMANDS: dict[str, list[str]] = {
 # Working directory inside the container where site files are mounted.
 _CONTAINER_WORKDIR = "/var/www/html"
 
+# Characters that are not allowed in a build_dir value to prevent path traversal.
+_BUILD_DIR_FORBIDDEN = frozenset(["\\", "\0"])
 
-def _exec_in_container(container_id: str, cmd: list[str]) -> tuple[int, str]:
+
+def _resolve_workdir(build_dir: str | None) -> str:
+    """Return the absolute workdir path inside the container.
+
+    *build_dir* is a relative sub-path (e.g. ``frontend``) appended to
+    ``_CONTAINER_WORKDIR``.  An empty / None value means the root mount point.
+    """
+    if not build_dir:
+        return _CONTAINER_WORKDIR
+    # Normalise and reject traversal attempts
+    import posixpath
+    normalised = posixpath.normpath(build_dir.strip().strip("/"))
+    if normalised == "." or normalised.startswith(".."):
+        return _CONTAINER_WORKDIR
+    return f"{_CONTAINER_WORKDIR}/{normalised}"
+
+
+def _wait_for_running(container, timeout: int = 30, interval: float = 2.0) -> None:
+    """Block until *container* enters the 'running' state.
+
+    Raises ``RuntimeError`` if the container does not become ready within
+    *timeout* seconds or ends up in an unrecoverable state.
+    """
+    import time
+
+    elapsed = 0.0
+    while elapsed < timeout:
+        container.reload()
+        if container.status == "running":
+            return
+        if container.status not in ("restarting", "created"):
+            raise RuntimeError(
+                f"Container is in state '{container.status}' and cannot accept commands."
+            )
+        time.sleep(interval)
+        elapsed += interval
+    raise RuntimeError(
+        f"Container did not become ready within {timeout} seconds "
+        f"(last status: {container.status})."
+    )
+
+
+def _exec_in_container(container_id: str, cmd: list[str], workdir: str = _CONTAINER_WORKDIR) -> tuple[int, str]:
     """Run *cmd* inside *container_id* and return (exit_code, combined_output)."""
     import docker
     client = docker.from_env()
     container = client.containers.get(container_id)
+    _wait_for_running(container)
     exit_code, output = container.exec_run(
         cmd,
-        workdir=_CONTAINER_WORKDIR,
+        workdir=workdir,
         demux=False,
         stream=False,
     )
     text = output.decode("utf-8", errors="replace") if output else ""
     return exit_code, text
+
+
+@router.post("/sites/{site_name}/set-build-dir")
+async def set_build_dir_ui(
+    request: Request,
+    site_name: str,
+    build_dir: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Save the build/root directory for a site's container commands."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    build_dir = build_dir.strip()
+    if build_dir:
+        import posixpath
+        normalised = posixpath.normpath(build_dir.strip("/"))
+        if normalised == "." or normalised.startswith("..") or any(c in build_dir for c in _BUILD_DIR_FORBIDDEN):
+            request.session["flash_error"] = (
+                "Invalid build directory. Use a simple relative path like 'frontend' or 'apps/web'."
+            )
+            return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+        site.build_dir = normalised
+    else:
+        site.build_dir = None
+
+    db.commit()
+    log.info("UI: set build_dir=%r for site %s", site.build_dir, site.name)
+    request.session["flash_message"] = (
+        f"Build directory set to '{site.build_dir or '/var/www/html (default)'}'. "
+        "This will be used as the working directory for all build commands."
+    )
+    return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
 
 @router.post("/sites/{site_name}/run-command")
@@ -932,8 +1015,9 @@ async def run_command_ui(
         request.session["flash_message"] = f"[DEV] Would run: {' '.join(cmd)}"
         return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
+    workdir = _resolve_workdir(site.build_dir)
     try:
-        exit_code, output = _exec_in_container(site.container_id, cmd)
+        exit_code, output = _exec_in_container(site.container_id, cmd, workdir=workdir)
         display_cmd = " ".join(cmd)
         if exit_code == 0:
             log.info("Command succeeded for site %s: %s", site_name, display_cmd)

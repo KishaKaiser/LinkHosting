@@ -50,6 +50,7 @@ class Site(Base):
     upstream_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     git_repo: Mapped[str | None] = mapped_column(String(512), nullable=True)
     git_branch: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    build_dir: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
