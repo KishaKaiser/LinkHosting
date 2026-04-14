@@ -56,6 +56,97 @@ def test_provision_container_dev_mode():
     assert container_id == "dev-container-devsite"
 
 
+def test_provision_node_container_uses_keepalive_command(tmp_path, monkeypatch):
+    """Node.js containers must be started with a keep-alive command so they don't
+    exit immediately (which would cause a restart loop and block build commands)."""
+    import importlib
+    from unittest.mock import MagicMock, patch
+
+    monkeypatch.setenv("DEV_MODE", "false")
+    monkeypatch.setenv("SITES_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("CERTS_BASE_DIR", str(tmp_path / "certs"))
+
+    import app.config as config_module
+    original_settings = config_module.settings
+    config_module.settings = config_module.Settings()
+
+    import app.services.container as container_module
+    importlib.reload(container_module)
+
+    from app.models import Site, SiteType, SiteStatus
+
+    site = Site(
+        id=2,
+        name="nodesite",
+        domain="nodesite.local",
+        site_type=SiteType.node,
+        status=SiteStatus.pending,
+    )
+
+    mock_container = MagicMock()
+    mock_container.id = "abc123"
+    mock_client = MagicMock()
+    mock_client.containers.run.return_value = mock_container
+
+    try:
+        with patch.object(container_module, "_docker_client", return_value=mock_client):
+            with patch.object(container_module, "_ensure_network"):
+                container_module.provision_container(site)
+    finally:
+        config_module.settings = original_settings
+        importlib.reload(container_module)
+
+    _, kwargs = mock_client.containers.run.call_args
+    assert kwargs.get("command") == ["tail", "-f", "/dev/null"], (
+        "Node.js container must use a keep-alive command to prevent restart loops"
+    )
+
+
+def test_provision_static_container_no_keepalive_command(tmp_path, monkeypatch):
+    """Static (nginx) containers must NOT override the default command."""
+    import importlib
+    from unittest.mock import MagicMock, patch
+
+    monkeypatch.setenv("DEV_MODE", "false")
+    monkeypatch.setenv("SITES_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("CERTS_BASE_DIR", str(tmp_path / "certs"))
+
+    import app.config as config_module
+    original_settings = config_module.settings
+    config_module.settings = config_module.Settings()
+
+    import app.services.container as container_module
+    importlib.reload(container_module)
+
+    from app.models import Site, SiteType, SiteStatus
+
+    site = Site(
+        id=3,
+        name="staticsite",
+        domain="staticsite.local",
+        site_type=SiteType.static,
+        status=SiteStatus.pending,
+    )
+
+    mock_container = MagicMock()
+    mock_container.id = "def456"
+    mock_client = MagicMock()
+    mock_client.containers.run.return_value = mock_container
+
+    try:
+        with patch.object(container_module, "_docker_client", return_value=mock_client):
+            with patch.object(container_module, "_ensure_network"):
+                container_module.provision_container(site)
+    finally:
+        config_module.settings = original_settings
+        importlib.reload(container_module)
+
+    _, kwargs = mock_client.containers.run.call_args
+    assert kwargs.get("command") is None, (
+        "Static/nginx containers should not override the image default command"
+    )
+
+
 def test_provision_database_dev_mode():
     from app.services.database import provision_database
     from app.models import DatabaseEngine

@@ -268,3 +268,75 @@ def test_resolve_workdir():
     # Traversal attempts must fall back to root
     assert _resolve_workdir("../../etc") == "/var/www/html"
     assert _resolve_workdir("..") == "/var/www/html"
+
+
+# ── _wait_for_running helper ──────────────────────────────────────────────────
+
+def test_wait_for_running_running_immediately():
+    """Container already running should return without sleeping."""
+    from unittest.mock import MagicMock
+    from app.api.ui import _wait_for_running
+
+    container = MagicMock()
+    container.status = "running"
+    _wait_for_running(container)  # must not raise
+
+
+def test_wait_for_running_created_then_running():
+    """Container in 'created' state should be polled until it becomes 'running'."""
+    from unittest.mock import MagicMock, patch
+    from app.api.ui import _wait_for_running
+
+    container = MagicMock()
+    container.status = "created"
+    calls = []
+
+    def reload_side_effect():
+        calls.append(1)
+        if len(calls) >= 2:
+            container.status = "running"
+
+    container.reload.side_effect = reload_side_effect
+
+    with patch("time.sleep"):
+        _wait_for_running(container, timeout=10, interval=1.0)
+
+
+def test_wait_for_running_restarting_fails_fast():
+    """Container in 'restarting' state should fail immediately with a helpful message."""
+    import pytest
+    from unittest.mock import MagicMock
+    from app.api.ui import _wait_for_running
+
+    container = MagicMock()
+    container.status = "restarting"
+
+    with pytest.raises(RuntimeError, match="restart loop"):
+        _wait_for_running(container)
+
+
+def test_wait_for_running_exited_fails_fast():
+    """Container in 'exited' state should raise immediately."""
+    import pytest
+    from unittest.mock import MagicMock
+    from app.api.ui import _wait_for_running
+
+    container = MagicMock()
+    container.status = "exited"
+
+    with pytest.raises(RuntimeError, match="exited"):
+        _wait_for_running(container)
+
+
+def test_wait_for_running_timeout():
+    """Container stuck in 'created' state should raise after timeout."""
+    import pytest
+    from unittest.mock import MagicMock, patch
+    from app.api.ui import _wait_for_running
+
+    container = MagicMock()
+    container.status = "created"
+
+    with patch("time.sleep"):
+        with pytest.raises(RuntimeError, match="did not become ready"):
+            _wait_for_running(container, timeout=4, interval=2.0)

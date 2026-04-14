@@ -900,7 +900,12 @@ def _wait_for_running(container, timeout: int = 30, interval: float = 2.0) -> No
         container.reload()
         if container.status == "running":
             return
-        if container.status not in ("restarting", "created"):
+        if container.status == "restarting":
+            raise RuntimeError(
+                "Container is in a restart loop — the application process has exited. "
+                "Check the container logs and make sure the site is configured correctly."
+            )
+        if container.status not in ("created",):
             raise RuntimeError(
                 f"Container is in state '{container.status}' and cannot accept commands."
             )
