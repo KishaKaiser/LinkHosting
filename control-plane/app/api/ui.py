@@ -7,6 +7,7 @@ All UI routes live under /panel/.
 import secrets
 import json as _json
 import logging
+import posixpath
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -880,7 +881,6 @@ def _resolve_workdir(build_dir: str | None) -> str:
     if not build_dir:
         return _CONTAINER_WORKDIR
     # Normalise and reject traversal attempts
-    import posixpath
     normalised = posixpath.normpath(build_dir.strip().strip("/"))
     if normalised == "." or normalised.startswith(".."):
         return _CONTAINER_WORKDIR
@@ -946,7 +946,6 @@ async def set_build_dir_ui(
 
     build_dir = build_dir.strip()
     if build_dir:
-        import posixpath
         normalised = posixpath.normpath(build_dir.strip("/"))
         if normalised == "." or normalised.startswith("..") or any(c in build_dir for c in _BUILD_DIR_FORBIDDEN):
             request.session["flash_error"] = (
