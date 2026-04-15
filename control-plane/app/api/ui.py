@@ -867,9 +867,53 @@ _ALLOWED_PRESET_COMMANDS: dict[str, list[str]] = {
 
 # Working directory inside the container where site files are mounted.
 _CONTAINER_WORKDIR = "/var/www/html"
+_CONTAINER_WORKDIR_NO_SLASH = _CONTAINER_WORKDIR.lstrip("/")
 
-# Characters that are not allowed in a build_dir value to prevent path traversal.
-_BUILD_DIR_FORBIDDEN = frozenset(["\\", "\0"])
+# Characters that are not allowed in a build_dir value to prevent invalid paths.
+# Backslashes are normalized to "/" first for Windows-style input compatibility.
+_BUILD_DIR_FORBIDDEN = frozenset(["\0"])
+
+
+def _normalize_build_dir(build_dir: str | None) -> str | None:
+    """Normalize a user-provided build directory to a safe relative sub-path.
+
+    Returns ``None`` for the container root (``/var/www/html``).
+    """
+    if build_dir is None:
+        return None
+
+    raw = build_dir.strip()
+    if not raw:
+        return None
+
+    # Accept shell-ish "current directory" values as root.
+    if raw in {".", "./"}:
+        return None
+
+    # Accept Windows-style separators in UI input.
+    raw = raw.replace("\\", "/")
+
+    # Accept values pasted as absolute container paths:
+    #   /var/www/html/frontend
+    #   var/www/html/frontend
+    for prefix in (_CONTAINER_WORKDIR, _CONTAINER_WORKDIR_NO_SLASH):
+        if raw == prefix:
+            return None
+        if raw.startswith(prefix + "/"):
+            raw = raw[len(prefix) + 1:]
+            break
+
+    # Also accept "/frontend" style values.
+    raw = raw.lstrip("/")
+    normalized = posixpath.normpath(raw)
+
+    if normalized in ("", "."):
+        return None
+    if normalized.startswith(".."):
+        raise ValueError("Invalid build directory.")
+    if any(c in normalized for c in _BUILD_DIR_FORBIDDEN):
+        raise ValueError("Invalid build directory.")
+    return normalized
 
 
 def _resolve_workdir(build_dir: str | None) -> str:
@@ -880,11 +924,13 @@ def _resolve_workdir(build_dir: str | None) -> str:
     """
     if not build_dir:
         return _CONTAINER_WORKDIR
-    # Normalise and reject traversal attempts
-    normalised = posixpath.normpath(build_dir.strip().strip("/"))
-    if normalised == "." or normalised.startswith(".."):
+    try:
+        normalized = _normalize_build_dir(build_dir)
+    except ValueError:
         return _CONTAINER_WORKDIR
-    return f"{_CONTAINER_WORKDIR}/{normalised}"
+    if not normalized:
+        return _CONTAINER_WORKDIR
+    return f"{_CONTAINER_WORKDIR}/{normalized}"
 
 
 def _wait_for_running(container, timeout: int = 30, interval: float = 2.0) -> None:
@@ -949,17 +995,14 @@ async def set_build_dir_ui(
     if not site:
         return RedirectResponse("/panel/", status_code=302)
 
-    build_dir = build_dir.strip()
-    if build_dir:
-        normalised = posixpath.normpath(build_dir.strip("/"))
-        if normalised == "." or normalised.startswith("..") or any(c in build_dir for c in _BUILD_DIR_FORBIDDEN):
-            request.session["flash_error"] = (
-                "Invalid build directory. Use a simple relative path like 'frontend' or 'apps/web'."
-            )
-            return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
-        site.build_dir = normalised
-    else:
-        site.build_dir = None
+    try:
+        site.build_dir = _normalize_build_dir(build_dir)
+    except ValueError:
+        request.session["flash_error"] = (
+            "Invalid build directory. Use a path like 'frontend', 'apps/web', "
+            "or '/var/www/html/apps/web'."
+        )
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
     db.commit()
     log.info("UI: set build_dir=%r for site %s", site.build_dir, site.name)
