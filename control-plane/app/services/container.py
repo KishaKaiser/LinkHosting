@@ -19,6 +19,15 @@ DEFAULT_IMAGES: dict[SiteType, str] = {
     SiteType.proxy: "nginx:alpine",
 }
 
+# Keep-alive commands for images whose default entrypoint exits immediately
+# (e.g. the node/python REPLs quit when run detached without stdin).
+# This ensures the container stays running so that docker exec can be used
+# for build commands such as `npm install` / `npm run build`.
+_KEEPALIVE_COMMANDS: dict[SiteType, list[str]] = {
+    SiteType.node: ["tail", "-f", "/dev/null"],
+    SiteType.python: ["tail", "-f", "/dev/null"],
+}
+
 
 def _docker_client():
     import docker
@@ -97,6 +106,7 @@ def provision_container(site: Site) -> str:
         environment=env,
         volumes=volumes,
         labels=labels,
+        command=_KEEPALIVE_COMMANDS.get(site.site_type),
     )
     log.info("Started container %s for site %s", container.id[:12], site.name)
     return container.id
