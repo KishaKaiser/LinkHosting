@@ -302,7 +302,7 @@ def test_resolve_workdir():
     assert _resolve_workdir("apps/web") == "/var/www/html/apps/web"
     assert _resolve_workdir(".") == "/var/www/html"
     assert _resolve_workdir("/var/www/html/apps/web") == "/var/www/html/apps/web"
-    # tolerate previously-stored prefixed values
+    # Tolerate previously-stored prefixed values
     assert _resolve_workdir("var/www/html/apps/web") == "/var/www/html/apps/web"
     # Traversal attempts must fall back to root
     assert _resolve_workdir("../../etc") == "/var/www/html"

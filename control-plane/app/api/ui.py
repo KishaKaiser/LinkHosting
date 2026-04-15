@@ -869,8 +869,8 @@ _ALLOWED_PRESET_COMMANDS: dict[str, list[str]] = {
 _CONTAINER_WORKDIR = "/var/www/html"
 _CONTAINER_WORKDIR_NO_SLASH = _CONTAINER_WORKDIR.lstrip("/")
 
-# Characters that are not allowed in a build_dir value to prevent path traversal.
-_BUILD_DIR_FORBIDDEN = frozenset(["\\", "\0"])
+# Characters that are not allowed in a build_dir value to prevent invalid paths.
+_BUILD_DIR_FORBIDDEN = frozenset(["\0"])
 
 
 def _normalize_build_dir(build_dir: str | None) -> str | None:
