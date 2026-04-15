@@ -870,6 +870,7 @@ _CONTAINER_WORKDIR = "/var/www/html"
 _CONTAINER_WORKDIR_NO_SLASH = _CONTAINER_WORKDIR.lstrip("/")
 
 # Characters that are not allowed in a build_dir value to prevent invalid paths.
+# Backslashes are normalized to "/" first for Windows-style input compatibility.
 _BUILD_DIR_FORBIDDEN = frozenset(["\0"])
 
 
@@ -998,8 +999,8 @@ async def set_build_dir_ui(
         site.build_dir = _normalize_build_dir(build_dir)
     except ValueError:
         request.session["flash_error"] = (
-            "Invalid build directory. Use a relative path like 'frontend' or 'apps/web', "
-            "or an absolute path under /var/www/html."
+            "Invalid build directory. Use a path like 'frontend', 'apps/web', "
+            "or '/var/www/html/apps/web'."
         )
         return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
