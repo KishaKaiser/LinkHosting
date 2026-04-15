@@ -223,6 +223,34 @@ def test_set_build_dir_valid(client):
     assert "frontend" in resp.text
 
 
+def test_set_build_dir_absolute_container_path(client):
+    """Absolute paths under /var/www/html should be accepted and stored as relative."""
+    _authenticated_client(client)
+    _create_site_via_api(client, "nodebuilddirabs1", site_type="node")
+
+    resp = client.post(
+        "/panel/sites/nodebuilddirabs1/set-build-dir",
+        data={"build_dir": "/var/www/html/apps/web"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "apps/web" in resp.text
+
+
+def test_set_build_dir_dot_clears_to_default(client):
+    """A '.' value should be treated as the default root directory."""
+    _authenticated_client(client)
+    _create_site_via_api(client, "nodebuilddirdot1", site_type="node")
+
+    resp = client.post(
+        "/panel/sites/nodebuilddirdot1/set-build-dir",
+        data={"build_dir": "."},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "default" in resp.text.lower() or "Build directory" in resp.text
+
+
 def test_set_build_dir_clear(client):
     """An empty value should clear the stored build_dir."""
     _authenticated_client(client)
@@ -265,6 +293,10 @@ def test_resolve_workdir():
     assert _resolve_workdir("frontend") == "/var/www/html/frontend"
     assert _resolve_workdir("/frontend") == "/var/www/html/frontend"
     assert _resolve_workdir("apps/web") == "/var/www/html/apps/web"
+    assert _resolve_workdir(".") == "/var/www/html"
+    assert _resolve_workdir("/var/www/html/apps/web") == "/var/www/html/apps/web"
+    # tolerate previously-stored prefixed values
+    assert _resolve_workdir("var/www/html/apps/web") == "/var/www/html/apps/web"
     # Traversal attempts must fall back to root
     assert _resolve_workdir("../../etc") == "/var/www/html"
     assert _resolve_workdir("..") == "/var/www/html"
