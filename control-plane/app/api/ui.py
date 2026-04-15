@@ -873,7 +873,7 @@ _BUILD_DIR_FORBIDDEN = frozenset(["\\", "\0"])
 
 
 def _normalize_build_dir(build_dir: str | None) -> str | None:
-    """Normalise a user-provided build directory to a safe relative sub-path.
+    """Normalize a user-provided build directory to a safe relative sub-path.
 
     Returns ``None`` for the container root (``/var/www/html``).
     """
