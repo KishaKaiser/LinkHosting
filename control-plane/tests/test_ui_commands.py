@@ -241,6 +241,7 @@ def test_set_build_dir_dot_clears_to_default(client):
     """A '.' value should be treated as the default root directory."""
     _authenticated_client(client)
     _create_site_via_api(client, "nodebuilddirdot1", site_type="node")
+    client.post("/panel/sites/nodebuilddirdot1/set-build-dir", data={"build_dir": "apps/web"})
 
     resp = client.post(
         "/panel/sites/nodebuilddirdot1/set-build-dir",
@@ -249,6 +250,7 @@ def test_set_build_dir_dot_clears_to_default(client):
     )
     assert resp.status_code == 200
     assert "/var/www/html (default)" in resp.text
+    assert "value=\"apps/web\"" not in resp.text
 
 
 def test_set_build_dir_clear(client):

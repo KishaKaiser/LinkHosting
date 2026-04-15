@@ -903,15 +903,15 @@ def _normalize_build_dir(build_dir: str | None) -> str | None:
 
     # Also accept "/frontend" style values.
     raw = raw.lstrip("/")
-    normalised = posixpath.normpath(raw)
+    normalized = posixpath.normpath(raw)
 
-    if normalised in ("", "."):
+    if normalized in ("", "."):
         return None
-    if normalised.startswith(".."):
+    if normalized.startswith(".."):
         raise ValueError("Invalid build directory.")
-    if any(c in normalised for c in _BUILD_DIR_FORBIDDEN):
+    if any(c in normalized for c in _BUILD_DIR_FORBIDDEN):
         raise ValueError("Invalid build directory.")
-    return normalised
+    return normalized
 
 
 def _resolve_workdir(build_dir: str | None) -> str:
@@ -923,12 +923,12 @@ def _resolve_workdir(build_dir: str | None) -> str:
     if not build_dir:
         return _CONTAINER_WORKDIR
     try:
-        normalised = _normalize_build_dir(build_dir)
+        normalized = _normalize_build_dir(build_dir)
     except ValueError:
         return _CONTAINER_WORKDIR
-    if not normalised:
+    if not normalized:
         return _CONTAINER_WORKDIR
-    return f"{_CONTAINER_WORKDIR}/{normalised}"
+    return f"{_CONTAINER_WORKDIR}/{normalized}"
 
 
 def _wait_for_running(container, timeout: int = 30, interval: float = 2.0) -> None:
