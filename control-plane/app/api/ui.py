@@ -867,6 +867,7 @@ _ALLOWED_PRESET_COMMANDS: dict[str, list[str]] = {
 
 # Working directory inside the container where site files are mounted.
 _CONTAINER_WORKDIR = "/var/www/html"
+_CONTAINER_WORKDIR_NO_SLASH = _CONTAINER_WORKDIR.lstrip("/")
 
 # Characters that are not allowed in a build_dir value to prevent path traversal.
 _BUILD_DIR_FORBIDDEN = frozenset(["\\", "\0"])
@@ -894,7 +895,7 @@ def _normalize_build_dir(build_dir: str | None) -> str | None:
     # Accept values pasted as absolute container paths:
     #   /var/www/html/frontend
     #   var/www/html/frontend
-    for prefix in (_CONTAINER_WORKDIR, _CONTAINER_WORKDIR.lstrip("/")):
+    for prefix in (_CONTAINER_WORKDIR, _CONTAINER_WORKDIR_NO_SLASH):
         if raw == prefix:
             return None
         if raw.startswith(prefix + "/"):
