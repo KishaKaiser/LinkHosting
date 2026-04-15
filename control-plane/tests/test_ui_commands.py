@@ -248,7 +248,7 @@ def test_set_build_dir_dot_clears_to_default(client):
         follow_redirects=True,
     )
     assert resp.status_code == 200
-    assert "default" in resp.text.lower() or "Build directory" in resp.text
+    assert "/var/www/html (default)" in resp.text
 
 
 def test_set_build_dir_clear(client):

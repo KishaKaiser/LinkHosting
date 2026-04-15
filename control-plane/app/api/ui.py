@@ -872,7 +872,7 @@ _CONTAINER_WORKDIR = "/var/www/html"
 _BUILD_DIR_FORBIDDEN = frozenset(["\\", "\0"])
 
 
-def _normalise_build_dir(build_dir: str | None) -> str | None:
+def _normalize_build_dir(build_dir: str | None) -> str | None:
     """Normalise a user-provided build directory to a safe relative sub-path.
 
     Returns ``None`` for the container root (``/var/www/html``).
@@ -923,7 +923,7 @@ def _resolve_workdir(build_dir: str | None) -> str:
     if not build_dir:
         return _CONTAINER_WORKDIR
     try:
-        normalised = _normalise_build_dir(build_dir)
+        normalised = _normalize_build_dir(build_dir)
     except ValueError:
         return _CONTAINER_WORKDIR
     if not normalised:
@@ -994,7 +994,7 @@ async def set_build_dir_ui(
         return RedirectResponse("/panel/", status_code=302)
 
     try:
-        site.build_dir = _normalise_build_dir(build_dir)
+        site.build_dir = _normalize_build_dir(build_dir)
     except ValueError:
         request.session["flash_error"] = (
             "Invalid build directory. Use a relative path like 'frontend' or 'apps/web', "
