@@ -379,3 +379,22 @@ def test_wait_for_running_timeout():
     with patch("time.sleep"):
         with pytest.raises(RuntimeError, match="did not become ready"):
             _wait_for_running(container, timeout=4, interval=2.0)
+
+
+# ── output truncation helper ────────────────────────────────────────────────────
+
+def test_truncate_command_output_short():
+    from app.api.ui import _truncate_command_output
+
+    assert _truncate_command_output("ok", limit=10) == "ok"
+
+
+def test_truncate_command_output_long():
+    from app.api.ui import _truncate_command_output
+
+    output = "A" * 1200 + "B" * 1200
+    truncated = _truncate_command_output(output, limit=100)
+
+    assert "... [output truncated:" in truncated
+    assert truncated.startswith("A" * 50)
+    assert truncated.endswith("B" * 50)

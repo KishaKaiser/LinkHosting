@@ -868,6 +868,7 @@ _ALLOWED_PRESET_COMMANDS: dict[str, list[str]] = {
 # Working directory inside the container where site files are mounted.
 _CONTAINER_WORKDIR = "/var/www/html"
 _CONTAINER_WORKDIR_NO_SLASH = _CONTAINER_WORKDIR.lstrip("/")
+_MAX_FLASH_OUTPUT_CHARS = 1000
 
 # Characters that are not allowed in a build_dir value to prevent invalid paths.
 # Backslashes are normalized to "/" first for Windows-style input compatibility.
@@ -931,6 +932,22 @@ def _resolve_workdir(build_dir: str | None) -> str:
     if not normalized:
         return _CONTAINER_WORKDIR
     return f"{_CONTAINER_WORKDIR}/{normalized}"
+
+
+def _truncate_command_output(output: str, limit: int = _MAX_FLASH_OUTPUT_CHARS) -> str:
+    """Trim command output so it fits safely inside cookie-backed flash messages."""
+    if not output:
+        return ""
+    if len(output) <= limit:
+        return output
+    head = max(1, limit // 2)
+    tail = max(1, limit - head)
+    omitted = len(output) - (head + tail)
+    return (
+        f"{output[:head]}\n\n"
+        f"... [output truncated: omitted {omitted} characters] ...\n\n"
+        f"{output[-tail:]}"
+    )
 
 
 def _wait_for_running(container, timeout: int = 30, interval: float = 2.0) -> None:
@@ -1066,11 +1083,12 @@ async def run_command_ui(
     try:
         exit_code, output = _exec_in_container(site.container_id, cmd, workdir=workdir)
         display_cmd = " ".join(cmd)
+        output_for_flash = _truncate_command_output(output)
         if exit_code == 0:
             log.info("Command succeeded for site %s: %s", site_name, display_cmd)
             msg = f"✅ Command '{display_cmd}' finished successfully."
-            if output:
-                msg += f"\n\n{output}"
+            if output_for_flash:
+                msg += f"\n\n{output_for_flash}"
             request.session["flash_message"] = msg
         else:
             log.warning(
@@ -1078,8 +1096,8 @@ async def run_command_ui(
                 site_name, exit_code, display_cmd, output,
             )
             msg = f"Command '{display_cmd}' exited with code {exit_code}."
-            if output:
-                msg += f"\n\n{output}"
+            if output_for_flash:
+                msg += f"\n\n{output_for_flash}"
             request.session["flash_error"] = msg
     except Exception as exc:
         log.exception("run-command error for site %s", site_name)
