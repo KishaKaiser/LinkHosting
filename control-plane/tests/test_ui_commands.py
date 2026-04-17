@@ -395,6 +395,26 @@ def test_truncate_command_output_long():
     output = "A" * 1200 + "B" * 1200
     truncated = _truncate_command_output(output, limit=100)
 
-    assert "... [output truncated:" in truncated
-    assert truncated.startswith("A" * 50)
-    assert truncated.endswith("B" * 50)
+    assert "... [output truncated] ..." in truncated
+    assert truncated.startswith("A")
+    assert truncated.endswith("B")
+    assert len(truncated) == 100
+
+
+def test_truncate_command_output_marker_boundary():
+    from app.api.ui import _truncate_command_output
+
+    output = "A" * 100
+    marker = "... [output truncated] ..."
+    truncated = _truncate_command_output(output, limit=len(marker))
+
+    assert truncated == marker
+
+
+def test_truncate_command_output_tiny_limit():
+    from app.api.ui import _truncate_command_output
+
+    output = "A" * 100
+    assert _truncate_command_output(output, limit=1) == "."
+    assert _truncate_command_output(output, limit=2) == ".."
+    assert _truncate_command_output(output, limit=3) == "..."

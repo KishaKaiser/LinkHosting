@@ -935,19 +935,27 @@ def _resolve_workdir(build_dir: str | None) -> str:
 
 
 def _truncate_command_output(output: str, limit: int = _MAX_FLASH_OUTPUT_CHARS) -> str:
-    """Trim command output so it fits safely inside cookie-backed flash messages."""
+    """Return command output trimmed to at most ``limit`` characters for flash storage.
+
+    If truncation is needed, a marker is inserted between head/tail slices.
+    For very small limits, an ellipsis-only fallback is returned.
+    """
     if not output:
         return ""
     if len(output) <= limit:
         return output
-    head = max(1, limit // 2)
-    tail = max(1, limit - head)
-    omitted = len(output) - (head + tail)
-    return (
-        f"{output[:head]}\n\n"
-        f"... [output truncated: omitted {omitted} characters] ...\n\n"
-        f"{output[-tail:]}"
-    )
+
+    marker = "... [output truncated] ..."
+    if limit <= len(marker):
+        if limit == len(marker):
+            return marker
+        else:
+            return "..."[:limit]
+
+    budget = limit - len(marker)
+    head = budget // 2
+    tail = budget - head
+    return f"{output[:head]}{marker}{output[-tail:]}"
 
 
 def _wait_for_running(container, timeout: int = 30, interval: float = 2.0) -> None:
