@@ -217,7 +217,11 @@ def _deploy_wordpress_async(site: Site, db: Session) -> Site:
 
 def _run_deploy_inline(job_record: DeployJob, site: Site, db: Session) -> None:
     """Execute a WordPress deploy synchronously using the provided DB session."""
-    from app.services.wordpress import deploy_wordpress, generate_wordpress_compose
+    from app.services.wordpress import (
+        deploy_wordpress,
+        extract_wordpress_env_overrides,
+        generate_wordpress_compose,
+    )
     from app.services.proxy import write_vhost, reload_proxy
 
     job_record.status = JobStatus.running
@@ -225,10 +229,21 @@ def _run_deploy_inline(job_record: DeployJob, site: Site, db: Session) -> None:
 
     log_lines: list[str] = []
     try:
-        compose_file, _ = generate_wordpress_compose(site.name, site.domain)
+        wordpress_env = extract_wordpress_env_overrides(site.env_vars)
+        compose_file, _ = generate_wordpress_compose(
+            site.name,
+            site.domain,
+            wordpress_image=site.image,
+            wordpress_env=wordpress_env,
+        )
         log_lines.append(f"Generated compose file: {compose_file}")
 
-        stdout, stderr = deploy_wordpress(site.name, site.domain)
+        stdout, stderr = deploy_wordpress(
+            site.name,
+            site.domain,
+            wordpress_image=site.image,
+            wordpress_env=wordpress_env,
+        )
         if stdout:
             log_lines.append(stdout)
         if stderr:
@@ -348,4 +363,3 @@ def import_github(
     db.refresh(site)
     log.info("Imported GitHub repo %s into site %s", repo_url, site_name)
     return site
-

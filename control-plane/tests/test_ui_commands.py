@@ -289,6 +289,70 @@ def test_set_build_dir_traversal_rejected(client):
     assert "Invalid build directory" in resp.text
 
 
+# ── web-settings ───────────────────────────────────────────────────────────────
+
+def test_web_settings_php_site(client):
+    _authenticated_client(client)
+    _create_site_via_api(client, "phpsettings1", site_type="php")
+
+    resp = client.post(
+        "/panel/sites/phpsettings1/web-settings",
+        data={"php_version": "8.2", "client_max_body_size": "64M"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "Web settings saved" in resp.text
+    assert "value=\"8.2\"" in resp.text
+    assert "value=\"64M\"" in resp.text
+
+    site_resp = client.get("/sites/phpsettings1")
+    assert site_resp.status_code == 200
+    assert site_resp.json()["image"] == "php:8.2-apache"
+
+
+def test_web_settings_wordpress_site(client):
+    _authenticated_client(client)
+    _create_site_via_api(client, "wpsettings1", site_type="wordpress")
+
+    wp_extra = "define('WP_DEBUG', true);"
+    resp = client.post(
+        "/panel/sites/wpsettings1/web-settings",
+        data={
+            "php_version": "8.3",
+            "client_max_body_size": "128M",
+            "wordpress_config_extra": wp_extra,
+        },
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "Web settings saved" in resp.text
+    assert "value=\"8.3\"" in resp.text
+    assert "value=\"128M\"" in resp.text
+    assert "WP_DEBUG" in resp.text
+
+    site_resp = client.get("/sites/wpsettings1")
+    assert site_resp.status_code == 200
+    assert site_resp.json()["image"] == "wordpress:php8.3-apache"
+
+
+def test_web_settings_rejects_injection_attempt(client):
+    _authenticated_client(client)
+    _create_site_via_api(client, "badsize1", site_type="php")
+
+    resp = client.post(
+        "/panel/sites/badsize1/web-settings",
+        data={"client_max_body_size": "64M;rm -rf /", "php_version": "8.2"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "Invalid client_max_body_size" in resp.text
+    assert "64M;rm -rf /" not in resp.text
+
+    site_resp = client.get("/sites/badsize1")
+    assert site_resp.status_code == 200
+    assert site_resp.json()["image"] is None
+
+
 # ── _resolve_workdir helper ───────────────────────────────────────────────────
 
 def test_resolve_workdir():

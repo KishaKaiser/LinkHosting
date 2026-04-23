@@ -55,6 +55,41 @@ def test_generate_wordpress_compose_prod_mode(tmp_path, monkeypatch):
     assert oct(secrets_file.stat().st_mode)[-3:] == "600"
 
 
+def test_generate_wordpress_compose_with_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv("SITES_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("DEV_MODE", "false")
+    import importlib
+    import app.config as config_module
+    config_module.settings = config_module.Settings()
+
+    from app.services import wordpress as wp_module
+    importlib.reload(wp_module)
+
+    compose_file, _ = wp_module.generate_wordpress_compose(
+        "mysite",
+        "mysite.link",
+        wordpress_image="wordpress:php8.2-apache",
+        wordpress_env={"WORDPRESS_CONFIG_EXTRA": "define('WP_DEBUG', true);"},
+    )
+    content = compose_file.read_text()
+    assert "wordpress:php8.2-apache" in content
+    assert "WORDPRESS_CONFIG_EXTRA" in content
+
+
+def test_extract_wordpress_env_overrides():
+    from app.services.wordpress import extract_wordpress_env_overrides
+
+    env_json = (
+        '{"WORDPRESS_CONFIG_EXTRA":"define(\\"WP_DEBUG\\", true);",'
+        '"WORDPRESS_DB_NAME":"override",'
+        '"OTHER":"value"}'
+    )
+    parsed = extract_wordpress_env_overrides(env_json)
+    assert "WORDPRESS_CONFIG_EXTRA" in parsed
+    assert "WORDPRESS_DB_NAME" not in parsed
+    assert "OTHER" not in parsed
+
+
 def test_compose_project_name():
     from app.services.wordpress import _compose_project_name
     assert _compose_project_name("my-site") == "lh_wp_my_site"

@@ -179,6 +179,30 @@ def test_proxy_write_vhost_dev_mode(tmp_path, monkeypatch):
     proxy_module.write_vhost(site, tls=False)
 
 
+def test_proxy_write_vhost_includes_client_max_body_size(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROXY_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("DEV_MODE", "false")
+    import importlib
+    import app.config as config_module
+    config_module.settings = config_module.Settings()
+
+    from app.services import proxy as proxy_module
+    importlib.reload(proxy_module)
+
+    from app.models import Site, SiteType, SiteStatus
+    site = Site(
+        id=1,
+        name="proxysize",
+        domain="proxysize.local",
+        site_type=SiteType.static,
+        status=SiteStatus.pending,
+        env_vars='{"LINKHOSTING_CLIENT_MAX_BODY_SIZE":"64M"}',
+    )
+    conf_path = proxy_module.write_vhost(site, tls=False)
+    assert conf_path.exists()
+    assert "client_max_body_size 64M;" in conf_path.read_text()
+
+
 def test_cert_dev_mode(tmp_path):
     from app.services.cert import issue_cert
     cert_path, key_path, valid_until = issue_cert("testsite.local", tmp_path)
@@ -317,4 +341,3 @@ def test_dns_read_write_records(tmp_path, monkeypatch):
     updated = dns_module._read_records()
     assert "alpha.link" not in updated
     assert "beta.link" in updated
-

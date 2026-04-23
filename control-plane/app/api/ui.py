@@ -8,6 +8,7 @@ import secrets
 import json as _json
 import logging
 import posixpath
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -29,10 +30,53 @@ router = APIRouter(prefix="/panel", tags=["ui"])
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 
 SESSION_KEY = "authenticated"
+_CLIENT_MAX_BODY_SIZE_ENV_KEY = "LINKHOSTING_CLIENT_MAX_BODY_SIZE"
+_WORDPRESS_CONFIG_EXTRA_ENV_KEY = "WORDPRESS_CONFIG_EXTRA"
+_PHP_VERSION_RE = re.compile(r"^\d+\.\d+$")
+_CLIENT_MAX_BODY_SIZE_RE = re.compile(r"^(0|[1-9]\d*)([kKmMgG])?$")
 
 
 def _is_authenticated(request: Request) -> bool:
     return request.session.get(SESSION_KEY) is True
+
+
+def _load_site_env_vars(site: Site) -> dict[str, str]:
+    if not site.env_vars:
+        return {}
+    try:
+        stored = _json.loads(site.env_vars)
+    except (_json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(stored, dict):
+        return {}
+    return {str(k): str(v) for k, v in stored.items()}
+
+
+def _dump_site_env_vars(site: Site, env_vars: dict[str, str]) -> None:
+    site.env_vars = _json.dumps(env_vars) if env_vars else None
+
+
+def _normalize_client_max_body_size(value: str) -> str | None:
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if not _CLIENT_MAX_BODY_SIZE_RE.match(cleaned):
+        raise ValueError("Invalid client_max_body_size.")
+    return cleaned
+
+
+def _extract_php_version_from_image(site: Site) -> str:
+    if not site.image:
+        return ""
+    pattern_by_type = {
+        SiteType.php: r"^php:(\d+\.\d+)-apache$",
+        SiteType.wordpress: r"^wordpress:php(\d+\.\d+)-apache$",
+    }
+    pattern = pattern_by_type.get(site.site_type)
+    if not pattern:
+        return ""
+    match = re.match(pattern, site.image)
+    return match.group(1) if match else ""
 
 
 def _require_login(request: Request):
@@ -269,15 +313,8 @@ async def site_detail(request: Request, site_name: str, db: Session = Depends(ge
     message = request.session.pop("flash_message", None)
     error = request.session.pop("flash_error", None)
 
-    # Convert stored JSON env vars → KEY=VALUE lines for the textarea editor
-    import json as _json
-    env_text = ""
-    if site.env_vars:
-        try:
-            stored = _json.loads(site.env_vars)
-            env_text = "\n".join(f"{k}={v}" for k, v in stored.items())
-        except Exception:
-            env_text = ""
+    env_vars = _load_site_env_vars(site)
+    env_text = "\n".join(f"{k}={v}" for k, v in env_vars.items())
 
     databases = (
         db.query(SiteDatabase)
@@ -296,6 +333,9 @@ async def site_detail(request: Request, site_name: str, db: Session = Depends(ge
             "error": error,
             "env_text": env_text,
             "databases": databases,
+            "client_max_body_size": env_vars.get(_CLIENT_MAX_BODY_SIZE_ENV_KEY, ""),
+            "php_version": _extract_php_version_from_image(site),
+            "wordpress_config_extra": env_vars.get(_WORDPRESS_CONFIG_EXTRA_ENV_KEY, ""),
         },
     )
 
@@ -727,13 +767,8 @@ async def create_database_ui(
         .order_by(SiteDatabase.id.asc())
         .all()
     )
-    env_text = ""
-    if site.env_vars:
-        try:
-            stored = _json.loads(site.env_vars)
-            env_text = "\n".join(f"{k}={v}" for k, v in stored.items())
-        except Exception:
-            env_text = ""
+    env_vars = _load_site_env_vars(site)
+    env_text = "\n".join(f"{k}={v}" for k, v in env_vars.items())
 
     return templates.TemplateResponse(
         request,
@@ -743,6 +778,9 @@ async def create_database_ui(
             "jobs": jobs,
             "databases": databases,
             "env_text": env_text,
+            "client_max_body_size": env_vars.get(_CLIENT_MAX_BODY_SIZE_ENV_KEY, ""),
+            "php_version": _extract_php_version_from_image(site),
+            "wordpress_config_extra": env_vars.get(_WORDPRESS_CONFIG_EXTRA_ENV_KEY, ""),
             "message": None,
             "error": None,
             "db_credentials": {
@@ -849,6 +887,69 @@ async def update_env_ui(
     request.session["flash_message"] = (
         f"Environment variables saved ({len(env_vars)} variable(s)). "
         "Redeploy the site for changes to take effect."
+    )
+    return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+
+@router.post("/sites/{site_name}/web-settings")
+async def update_web_settings_ui(
+    request: Request,
+    site_name: str,
+    client_max_body_size: str = Form(""),
+    php_version: str = Form(""),
+    wordpress_config_extra: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Update per-site proxy/PHP/WordPress settings from the web UI."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    env_vars = _load_site_env_vars(site)
+
+    try:
+        normalized_size = _normalize_client_max_body_size(client_max_body_size)
+    except ValueError:
+        request.session["flash_error"] = (
+            "Invalid client_max_body_size. Use values like 10M, 64M, 1G, or 0."
+        )
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    if normalized_size is None:
+        env_vars.pop(_CLIENT_MAX_BODY_SIZE_ENV_KEY, None)
+    else:
+        env_vars[_CLIENT_MAX_BODY_SIZE_ENV_KEY] = normalized_size
+
+    version = php_version.strip()
+    if site.site_type in (SiteType.php, SiteType.wordpress):
+        if version:
+            if not _PHP_VERSION_RE.match(version):
+                request.session["flash_error"] = (
+                    "Invalid PHP version. Use values like 8.2 or 8.3."
+                )
+                return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+            if site.site_type == SiteType.php:
+                site.image = f"php:{version}-apache"
+            else:
+                site.image = f"wordpress:php{version}-apache"
+        else:
+            site.image = None
+
+    if site.site_type == SiteType.wordpress:
+        wp_extra = wordpress_config_extra.strip()
+        if wp_extra:
+            env_vars[_WORDPRESS_CONFIG_EXTRA_ENV_KEY] = wp_extra
+        else:
+            env_vars.pop(_WORDPRESS_CONFIG_EXTRA_ENV_KEY, None)
+
+    _dump_site_env_vars(site, env_vars)
+    db.commit()
+    request.session["flash_message"] = (
+        "Web settings saved. Redeploy the site for changes to take effect."
     )
     return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 

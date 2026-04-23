@@ -32,7 +32,11 @@ def run_wordpress_deploy(job_id: int) -> None:
 
     from app.config import settings
     from app.models import DeployJob, JobStatus, Site, SiteStatus
-    from app.services.wordpress import deploy_wordpress, generate_wordpress_compose
+    from app.services.wordpress import (
+        deploy_wordpress,
+        extract_wordpress_env_overrides,
+        generate_wordpress_compose,
+    )
     from app.services.proxy import write_vhost, reload_proxy
     from app.services.dns import add_dns_record
 
@@ -62,12 +66,23 @@ def run_wordpress_deploy(job_id: int) -> None:
         log_lines: list[str] = []
 
         try:
+            wordpress_env = extract_wordpress_env_overrides(site.env_vars)
             # 1. Generate docker-compose.yml
-            compose_file, _ = generate_wordpress_compose(site.name, site.domain)
+            compose_file, _ = generate_wordpress_compose(
+                site.name,
+                site.domain,
+                wordpress_image=site.image,
+                wordpress_env=wordpress_env,
+            )
             log_lines.append(f"Generated compose file: {compose_file}")
 
             # 2. Run docker compose up -d
-            stdout, stderr = deploy_wordpress(site.name, site.domain)
+            stdout, stderr = deploy_wordpress(
+                site.name,
+                site.domain,
+                wordpress_image=site.image,
+                wordpress_env=wordpress_env,
+            )
             if stdout:
                 log_lines.append(stdout)
             if stderr:
