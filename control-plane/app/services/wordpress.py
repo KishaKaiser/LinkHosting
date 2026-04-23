@@ -7,6 +7,7 @@ and ``.secrets`` files are still generated for visibility / manual recovery.
 import logging
 import secrets
 import string
+import json as _json
 from pathlib import Path
 
 import yaml
@@ -14,6 +15,15 @@ import yaml
 from app.config import settings
 
 log = logging.getLogger(__name__)
+_RESERVED_WORDPRESS_ENV = frozenset(
+    {
+        "WORDPRESS_DB_HOST",
+        "WORDPRESS_DB_USER",
+        "WORDPRESS_DB_PASSWORD",
+        "WORDPRESS_DB_NAME",
+        "WORDPRESS_TABLE_PREFIX",
+    }
+)
 
 
 def _random_password(length: int = 24) -> str:
@@ -39,7 +49,54 @@ def _wordpress_service_name(site_name: str) -> str:
     return f"wp_{site_name.replace('-', '_')}"
 
 
-def generate_wordpress_compose(site_name: str, domain: str) -> tuple[Path, dict]:
+def extract_wordpress_env_overrides(env_vars_json: str | None) -> dict[str, str]:
+    """Extract user-defined WordPress env vars from a site's env JSON payload."""
+    if not env_vars_json:
+        return {}
+    try:
+        loaded = _json.loads(env_vars_json)
+    except Exception:
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+
+    out: dict[str, str] = {}
+    for key, value in loaded.items():
+        key = str(key)
+        if key.startswith("WORDPRESS_") and key not in _RESERVED_WORDPRESS_ENV:
+            out[key] = str(value)
+    return out
+
+
+def _wordpress_environment(
+    db_container_name: str,
+    db_user: str,
+    db_password: str,
+    db_name: str,
+    table_prefix: str,
+    wordpress_env: dict[str, str] | None = None,
+) -> dict[str, str]:
+    env = {
+        "WORDPRESS_DB_HOST": db_container_name,
+        "WORDPRESS_DB_USER": db_user,
+        "WORDPRESS_DB_PASSWORD": db_password,
+        "WORDPRESS_DB_NAME": db_name,
+        "WORDPRESS_TABLE_PREFIX": table_prefix,
+    }
+    if wordpress_env:
+        for key, value in wordpress_env.items():
+            if key in _RESERVED_WORDPRESS_ENV:
+                continue
+            env[key] = str(value)
+    return env
+
+
+def generate_wordpress_compose(
+    site_name: str,
+    domain: str,
+    wordpress_image: str | None = None,
+    wordpress_env: dict[str, str] | None = None,
+) -> tuple[Path, dict]:
     """
     Generate docker-compose.yml for a WordPress site.
 
@@ -63,15 +120,16 @@ def generate_wordpress_compose(site_name: str, domain: str) -> tuple[Path, dict]
         "name": project,
         "services": {
             wp_service: {
-                "image": "wordpress:latest",
+                "image": wordpress_image or "wordpress:latest",
                 "restart": "unless-stopped",
-                "environment": {
-                    "WORDPRESS_DB_HOST": "db",
-                    "WORDPRESS_DB_USER": db_user,
-                    "WORDPRESS_DB_PASSWORD": db_password,
-                    "WORDPRESS_DB_NAME": db_name,
-                    "WORDPRESS_TABLE_PREFIX": table_prefix,
-                },
+                "environment": _wordpress_environment(
+                    "db",
+                    db_user,
+                    db_password,
+                    db_name,
+                    table_prefix,
+                    wordpress_env=wordpress_env,
+                ),
                 "volumes": [
                     f"{site_name}-wp-content:/var/www/html/wp-content",
                 ],
@@ -133,7 +191,12 @@ def generate_wordpress_compose(site_name: str, domain: str) -> tuple[Path, dict]
     return compose_file, credentials
 
 
-def deploy_wordpress(site_name: str, domain: str) -> tuple[str, str]:
+def deploy_wordpress(
+    site_name: str,
+    domain: str,
+    wordpress_image: str | None = None,
+    wordpress_env: dict[str, str] | None = None,
+) -> tuple[str, str]:
     """
     Deploy a WordPress site using the Docker Engine API.
 
@@ -154,7 +217,12 @@ def deploy_wordpress(site_name: str, domain: str) -> tuple[str, str]:
     # Ensure compose/secrets files exist (generated once; re-used on redeploy)
     credentials: dict = {}
     if not compose_file.exists():
-        _, credentials = generate_wordpress_compose(site_name, domain)
+        _, credentials = generate_wordpress_compose(
+            site_name,
+            domain,
+            wordpress_image=wordpress_image,
+            wordpress_env=wordpress_env,
+        )
     else:
         # Re-read existing credentials from the secrets file
         if secrets_file.exists():
@@ -163,7 +231,12 @@ def deploy_wordpress(site_name: str, domain: str) -> tuple[str, str]:
                 credentials[k.strip()] = v.strip()
         if not credentials:
             # Regenerate if secrets file is missing or empty
-            _, credentials = generate_wordpress_compose(site_name, domain)
+            _, credentials = generate_wordpress_compose(
+                site_name,
+                domain,
+                wordpress_image=wordpress_image,
+                wordpress_env=wordpress_env,
+            )
 
     project = _compose_project_name(site_name)
     wp_service = _wordpress_service_name(site_name)
@@ -226,14 +299,15 @@ def deploy_wordpress(site_name: str, domain: str) -> tuple[str, str]:
     # ── WordPress container (internal + proxy networks) ───────────────────────
     run_container(
         name=wp_container_name,
-        image="wordpress:latest",
-        environment={
-            "WORDPRESS_DB_HOST": db_container_name,
-            "WORDPRESS_DB_USER": db_user,
-            "WORDPRESS_DB_PASSWORD": db_password,
-            "WORDPRESS_DB_NAME": db_name,
-            "WORDPRESS_TABLE_PREFIX": table_prefix,
-        },
+        image=wordpress_image or "wordpress:latest",
+        environment=_wordpress_environment(
+            db_container_name,
+            db_user,
+            db_password,
+            db_name,
+            table_prefix,
+            wordpress_env=wordpress_env,
+        ),
         volumes={wp_content_vol: {"bind": "/var/www/html/wp-content", "mode": "rw"}},
         network=internal_net,
         extra_networks=[proxy_net],

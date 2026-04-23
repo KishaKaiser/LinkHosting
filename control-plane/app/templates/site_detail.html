@@ -140,6 +140,52 @@
     </form>
 </div>
 
+<div class="card">
+    <h2>Web UI Runtime Settings</h2>
+    <p class="text-muted" style="margin-bottom:0.75rem;">
+        These settings are applied during deploy. Changes require redeploy.
+    </p>
+    <form method="post" action="/panel/sites/{{ site.name }}/web-settings"
+          style="display:flex; flex-direction:column; gap:0.75rem; max-width:560px;">
+        <div class="form-group" style="margin-bottom:0;">
+            <label for="client-max-body-size">
+                client_max_body_size
+                <span class="text-muted" style="font-weight:normal;">(e.g. <code>64M</code>, <code>1G</code>, or <code>0</code>)</span>
+            </label>
+            <input type="text" id="client-max-body-size" name="client_max_body_size"
+                   value="{{ client_max_body_size or '' }}" placeholder="Leave empty for nginx default"
+                   style="font-family:monospace;" />
+        </div>
+
+        {% if site.site_type.value in ['php', 'wordpress'] %}
+        <div class="form-group" style="margin-bottom:0;">
+            <label for="php-version">
+                PHP version
+                <span class="text-muted" style="font-weight:normal;">(e.g. <code>8.2</code>, <code>8.3</code>)</span>
+            </label>
+            <input type="text" id="php-version" name="php_version"
+                   value="{{ php_version or '' }}" placeholder="Leave empty for default image"
+                   style="font-family:monospace;" />
+        </div>
+        {% endif %}
+
+        {% if site.site_type.value == 'wordpress' %}
+        <div class="form-group" style="margin-bottom:0;">
+            <label for="wordpress-config-extra">
+                WordPress config extra (<code>WORDPRESS_CONFIG_EXTRA</code>)
+            </label>
+            <textarea id="wordpress-config-extra" name="wordpress_config_extra" rows="6"
+                      style="font-family:monospace; font-size:0.85rem;"
+                      placeholder="define('WP_DEBUG', false);">{{ wordpress_config_extra or '' }}</textarea>
+        </div>
+        {% endif %}
+
+        <div>
+            <button type="submit" class="btn btn-primary">💾 Save Runtime Settings</button>
+        </div>
+    </form>
+</div>
+
 {% if site.site_type.value == 'node' %}
 <div class="card">
     <h2>Build Commands</h2>
