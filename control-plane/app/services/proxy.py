@@ -92,7 +92,7 @@ def _client_max_body_size_line(site: Site) -> str:
         return ""
     try:
         env_vars = json.loads(site.env_vars)
-    except Exception:
+    except (json.JSONDecodeError, TypeError):
         return ""
     if not isinstance(env_vars, dict):
         return ""

@@ -45,7 +45,7 @@ def _load_site_env_vars(site: Site) -> dict[str, str]:
         return {}
     try:
         stored = _json.loads(site.env_vars)
-    except Exception:
+    except (_json.JSONDecodeError, TypeError):
         return {}
     if not isinstance(stored, dict):
         return {}
@@ -68,13 +68,15 @@ def _normalize_client_max_body_size(value: str) -> str | None:
 def _extract_php_version_from_image(site: Site) -> str:
     if not site.image:
         return ""
-    if site.site_type == SiteType.php:
-        match = re.match(r"^php:(\d+\.\d+)-apache$", site.image)
-        return match.group(1) if match else ""
-    if site.site_type == SiteType.wordpress:
-        match = re.match(r"^wordpress:php(\d+\.\d+)-apache$", site.image)
-        return match.group(1) if match else ""
-    return ""
+    pattern_by_type = {
+        SiteType.php: r"^php:(\d+\.\d+)-apache$",
+        SiteType.wordpress: r"^wordpress:php(\d+\.\d+)-apache$",
+    }
+    pattern = pattern_by_type.get(site.site_type)
+    if not pattern:
+        return ""
+    match = re.match(pattern, site.image)
+    return match.group(1) if match else ""
 
 
 def _require_login(request: Request):
@@ -765,10 +767,8 @@ async def create_database_ui(
         .order_by(SiteDatabase.id.asc())
         .all()
     )
-    env_text = ""
     env_vars = _load_site_env_vars(site)
-    if site.env_vars:
-        env_text = "\n".join(f"{k}={v}" for k, v in env_vars.items())
+    env_text = "\n".join(f"{k}={v}" for k, v in env_vars.items())
 
     return templates.TemplateResponse(
         request,

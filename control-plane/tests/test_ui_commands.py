@@ -335,7 +335,7 @@ def test_web_settings_wordpress_site(client):
     assert site_resp.json()["image"] == "wordpress:php8.3-apache"
 
 
-def test_web_settings_invalid_client_max_body_size(client):
+def test_web_settings_rejects_injection_attempt(client):
     _authenticated_client(client)
     _create_site_via_api(client, "badsize1", site_type="php")
 
@@ -346,6 +346,7 @@ def test_web_settings_invalid_client_max_body_size(client):
     )
     assert resp.status_code == 200
     assert "Invalid client_max_body_size" in resp.text
+    assert "64M;rm -rf /" not in resp.text
 
     site_resp = client.get("/sites/badsize1")
     assert site_resp.status_code == 200

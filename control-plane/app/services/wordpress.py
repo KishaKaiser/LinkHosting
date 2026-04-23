@@ -7,7 +7,7 @@ and ``.secrets`` files are still generated for visibility / manual recovery.
 import logging
 import secrets
 import string
-import json as _json
+import json
 from pathlib import Path
 
 import yaml
@@ -54,8 +54,8 @@ def extract_wordpress_env_overrides(env_vars_json: str | None) -> dict[str, str]
     if not env_vars_json:
         return {}
     try:
-        loaded = _json.loads(env_vars_json)
-    except Exception:
+        loaded = json.loads(env_vars_json)
+    except (json.JSONDecodeError, TypeError):
         return {}
     if not isinstance(loaded, dict):
         return {}
