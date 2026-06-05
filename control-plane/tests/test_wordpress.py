@@ -81,11 +81,17 @@ def test_extract_wordpress_env_overrides():
 
     env_json = (
         '{"WORDPRESS_CONFIG_EXTRA":"define(\\"WP_DEBUG\\", true);",'
+        '"WP_MEMORY_LIMIT":"256M",'
+        '"upload_max_filesize":"64M",'
+        '"WP_CACHE":"1",'
         '"WORDPRESS_DB_NAME":"override",'
         '"OTHER":"value"}'
     )
     parsed = extract_wordpress_env_overrides(env_json)
     assert "WORDPRESS_CONFIG_EXTRA" in parsed
+    assert "define('WP_MEMORY_LIMIT', '256M');" in parsed["WORDPRESS_CONFIG_EXTRA"]
+    assert "@ini_set('upload_max_filesize', '64M');" in parsed["WORDPRESS_CONFIG_EXTRA"]
+    assert "define('WP_CACHE', true);" in parsed["WORDPRESS_CONFIG_EXTRA"]
     assert "WORDPRESS_DB_NAME" not in parsed
     assert "OTHER" not in parsed
 

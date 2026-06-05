@@ -170,6 +170,94 @@
         {% endif %}
 
         {% if site.site_type.value == 'wordpress' %}
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+            <div class="form-group" style="margin-bottom:0;">
+                <label for="wp-memory-limit">
+                    WP_MEMORY_LIMIT
+                    <span class="text-muted" style="font-weight:normal;">(e.g. <code>128M</code>)</span>
+                </label>
+                <input type="text" id="wp-memory-limit" name="wp_memory_limit"
+                       value="{{ wp_memory_limit or '' }}" placeholder="Leave empty for WordPress default"
+                       style="font-family:monospace;" />
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label for="wp-max-memory-limit">
+                    WP_MAX_MEMORY_LIMIT
+                    <span class="text-muted" style="font-weight:normal;">(e.g. <code>256M</code>)</span>
+                </label>
+                <input type="text" id="wp-max-memory-limit" name="wp_max_memory_limit"
+                       value="{{ wp_max_memory_limit or '' }}" placeholder="Leave empty for WordPress default"
+                       style="font-family:monospace;" />
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label for="upload-max-filesize">
+                    upload_max_filesize
+                    <span class="text-muted" style="font-weight:normal;">(e.g. <code>64M</code>)</span>
+                </label>
+                <input type="text" id="upload-max-filesize" name="upload_max_filesize"
+                       value="{{ upload_max_filesize or '' }}" placeholder="Leave empty for PHP default"
+                       style="font-family:monospace;" />
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label for="post-max-size">
+                    post_max_size
+                    <span class="text-muted" style="font-weight:normal;">(e.g. <code>64M</code>)</span>
+                </label>
+                <input type="text" id="post-max-size" name="post_max_size"
+                       value="{{ post_max_size or '' }}" placeholder="Leave empty for PHP default"
+                       style="font-family:monospace;" />
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label for="max-execution-time">
+                    max_execution_time
+                    <span class="text-muted" style="font-weight:normal;">(seconds)</span>
+                </label>
+                <input type="text" id="max-execution-time" name="max_execution_time"
+                       value="{{ max_execution_time or '' }}" placeholder="Leave empty for PHP default"
+                       style="font-family:monospace;" />
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label for="max-input-vars">
+                    max_input_vars
+                    <span class="text-muted" style="font-weight:normal;">(count)</span>
+                </label>
+                <input type="text" id="max-input-vars" name="max_input_vars"
+                       value="{{ max_input_vars or '' }}" placeholder="Leave empty for PHP default"
+                       style="font-family:monospace;" />
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label for="display-errors">display_errors</label>
+                <select id="display-errors" name="display_errors">
+                    <option value="" {% if not display_errors %}selected{% endif %}>Default</option>
+                    <option value="1" {% if display_errors == '1' %}selected{% endif %}>On</option>
+                    <option value="0" {% if display_errors == '0' %}selected{% endif %}>Off</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label for="wp-debug">WP_DEBUG</label>
+                <select id="wp-debug" name="wp_debug">
+                    <option value="" {% if not wp_debug %}selected{% endif %}>Default</option>
+                    <option value="1" {% if wp_debug == '1' %}selected{% endif %}>On</option>
+                    <option value="0" {% if wp_debug == '0' %}selected{% endif %}>Off</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label for="wp-debug-log">WP_DEBUG_LOG</label>
+                <select id="wp-debug-log" name="wp_debug_log">
+                    <option value="" {% if not wp_debug_log %}selected{% endif %}>Default</option>
+                    <option value="1" {% if wp_debug_log == '1' %}selected{% endif %}>On</option>
+                    <option value="0" {% if wp_debug_log == '0' %}selected{% endif %}>Off</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label for="wp-cache">WP_CACHE</label>
+                <select id="wp-cache" name="wp_cache">
+                    <option value="" {% if not wp_cache %}selected{% endif %}>Default</option>
+                    <option value="1" {% if wp_cache == '1' %}selected{% endif %}>On</option>
+                    <option value="0" {% if wp_cache == '0' %}selected{% endif %}>Off</option>
+                </select>
+            </div>
+        </div>
         <div class="form-group" style="margin-bottom:0;">
             <label for="wordpress-config-extra">
                 WordPress config extra (<code>WORDPRESS_CONFIG_EXTRA</code>)

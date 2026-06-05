@@ -24,6 +24,17 @@ _RESERVED_WORDPRESS_ENV = frozenset(
         "WORDPRESS_TABLE_PREFIX",
     }
 )
+_WP_DEFINE_KEYS = frozenset({"WP_MEMORY_LIMIT", "WP_MAX_MEMORY_LIMIT"})
+_WP_BOOL_DEFINE_KEYS = frozenset({"WP_DEBUG", "WP_DEBUG_LOG", "WP_CACHE"})
+_PHP_INI_KEYS = frozenset(
+    {
+        "upload_max_filesize",
+        "post_max_size",
+        "max_execution_time",
+        "max_input_vars",
+        "display_errors",
+    }
+)
 
 
 def _random_password(length: int = 24) -> str:
@@ -61,10 +72,35 @@ def extract_wordpress_env_overrides(env_vars_json: str | None) -> dict[str, str]
         return {}
 
     out: dict[str, str] = {}
+    generated_config_lines: list[str] = []
     for key, value in loaded.items():
         key = str(key)
         if key.startswith("WORDPRESS_") and key not in _RESERVED_WORDPRESS_ENV:
             out[key] = str(value)
+            continue
+
+        value_str = str(value).strip()
+        if not value_str:
+            continue
+
+        if key in _WP_DEFINE_KEYS:
+            generated_config_lines.append(f"define('{key}', '{value_str}');")
+            continue
+
+        if key in _WP_BOOL_DEFINE_KEYS:
+            bool_value = "true" if value_str.lower() in {"1", "true", "on", "yes"} else "false"
+            generated_config_lines.append(f"define('{key}', {bool_value});")
+            continue
+
+        if key in _PHP_INI_KEYS:
+            generated_config_lines.append(f"@ini_set('{key}', '{value_str}');")
+
+    if generated_config_lines:
+        generated_block = "\n".join(generated_config_lines)
+        existing_extra = out.get("WORDPRESS_CONFIG_EXTRA", "").strip()
+        out["WORDPRESS_CONFIG_EXTRA"] = (
+            f"{existing_extra}\n{generated_block}" if existing_extra else generated_block
+        )
     return out
 
 

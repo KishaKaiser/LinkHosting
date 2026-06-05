@@ -321,6 +321,16 @@ def test_web_settings_wordpress_site(client):
             "php_version": "8.3",
             "client_max_body_size": "128M",
             "wordpress_config_extra": wp_extra,
+            "wp_memory_limit": "256M",
+            "wp_max_memory_limit": "512M",
+            "upload_max_filesize": "64M",
+            "post_max_size": "64M",
+            "max_execution_time": "180",
+            "max_input_vars": "5000",
+            "display_errors": "0",
+            "wp_debug": "1",
+            "wp_debug_log": "1",
+            "wp_cache": "1",
         },
         follow_redirects=True,
     )
@@ -328,7 +338,12 @@ def test_web_settings_wordpress_site(client):
     assert "Web settings saved" in resp.text
     assert "value=\"8.3\"" in resp.text
     assert "value=\"128M\"" in resp.text
+    assert "value=\"256M\"" in resp.text
+    assert "value=\"512M\"" in resp.text
+    assert "value=\"5000\"" in resp.text
+    assert "value=\"180\"" in resp.text
     assert "WP_DEBUG" in resp.text
+    assert "id=\"wp-cache\"" in resp.text
 
     site_resp = client.get("/sites/wpsettings1")
     assert site_resp.status_code == 200
@@ -349,6 +364,23 @@ def test_web_settings_rejects_injection_attempt(client):
     assert "64M;rm -rf /" not in resp.text
 
     site_resp = client.get("/sites/badsize1")
+    assert site_resp.status_code == 200
+    assert site_resp.json()["image"] is None
+
+
+def test_web_settings_wordpress_rejects_invalid_runtime_values(client):
+    _authenticated_client(client)
+    _create_site_via_api(client, "badwpsettings1", site_type="wordpress")
+
+    resp = client.post(
+        "/panel/sites/badwpsettings1/web-settings",
+        data={"max_execution_time": "abc", "wp_debug": "1"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "Invalid WordPress runtime settings" in resp.text
+
+    site_resp = client.get("/sites/badwpsettings1")
     assert site_resp.status_code == 200
     assert site_resp.json()["image"] is None
 

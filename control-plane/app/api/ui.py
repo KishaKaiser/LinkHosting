@@ -32,6 +32,16 @@ router = APIRouter(prefix="/panel", tags=["ui"])
 SESSION_KEY = "authenticated"
 _CLIENT_MAX_BODY_SIZE_ENV_KEY = "LINKHOSTING_CLIENT_MAX_BODY_SIZE"
 _WORDPRESS_CONFIG_EXTRA_ENV_KEY = "WORDPRESS_CONFIG_EXTRA"
+_WP_MEMORY_LIMIT_ENV_KEY = "WP_MEMORY_LIMIT"
+_WP_MAX_MEMORY_LIMIT_ENV_KEY = "WP_MAX_MEMORY_LIMIT"
+_UPLOAD_MAX_FILESIZE_ENV_KEY = "upload_max_filesize"
+_POST_MAX_SIZE_ENV_KEY = "post_max_size"
+_MAX_EXECUTION_TIME_ENV_KEY = "max_execution_time"
+_MAX_INPUT_VARS_ENV_KEY = "max_input_vars"
+_DISPLAY_ERRORS_ENV_KEY = "display_errors"
+_WP_DEBUG_ENV_KEY = "WP_DEBUG"
+_WP_DEBUG_LOG_ENV_KEY = "WP_DEBUG_LOG"
+_WP_CACHE_ENV_KEY = "WP_CACHE"
 _PHP_VERSION_RE = re.compile(r"^\d+\.\d+$")
 _CLIENT_MAX_BODY_SIZE_RE = re.compile(r"^(0|[1-9]\d*)([kKmMgG])?$")
 
@@ -63,6 +73,35 @@ def _normalize_client_max_body_size(value: str) -> str | None:
     if not _CLIENT_MAX_BODY_SIZE_RE.match(cleaned):
         raise ValueError("Invalid client_max_body_size.")
     return cleaned
+
+
+def _normalize_optional_size_setting(value: str) -> str | None:
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if not _CLIENT_MAX_BODY_SIZE_RE.match(cleaned):
+        raise ValueError("Invalid size setting.")
+    return cleaned
+
+
+def _normalize_optional_int_setting(value: str) -> str | None:
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if not cleaned.isdigit():
+        raise ValueError("Invalid integer setting.")
+    return cleaned
+
+
+def _normalize_optional_toggle_setting(value: str) -> str | None:
+    cleaned = value.strip().lower()
+    if not cleaned:
+        return None
+    if cleaned in {"1", "true", "on", "yes"}:
+        return "1"
+    if cleaned in {"0", "false", "off", "no"}:
+        return "0"
+    raise ValueError("Invalid toggle setting.")
 
 
 def _extract_php_version_from_image(site: Site) -> str:
@@ -336,6 +375,16 @@ async def site_detail(request: Request, site_name: str, db: Session = Depends(ge
             "client_max_body_size": env_vars.get(_CLIENT_MAX_BODY_SIZE_ENV_KEY, ""),
             "php_version": _extract_php_version_from_image(site),
             "wordpress_config_extra": env_vars.get(_WORDPRESS_CONFIG_EXTRA_ENV_KEY, ""),
+            "wp_memory_limit": env_vars.get(_WP_MEMORY_LIMIT_ENV_KEY, ""),
+            "wp_max_memory_limit": env_vars.get(_WP_MAX_MEMORY_LIMIT_ENV_KEY, ""),
+            "upload_max_filesize": env_vars.get(_UPLOAD_MAX_FILESIZE_ENV_KEY, ""),
+            "post_max_size": env_vars.get(_POST_MAX_SIZE_ENV_KEY, ""),
+            "max_execution_time": env_vars.get(_MAX_EXECUTION_TIME_ENV_KEY, ""),
+            "max_input_vars": env_vars.get(_MAX_INPUT_VARS_ENV_KEY, ""),
+            "display_errors": env_vars.get(_DISPLAY_ERRORS_ENV_KEY, ""),
+            "wp_debug": env_vars.get(_WP_DEBUG_ENV_KEY, ""),
+            "wp_debug_log": env_vars.get(_WP_DEBUG_LOG_ENV_KEY, ""),
+            "wp_cache": env_vars.get(_WP_CACHE_ENV_KEY, ""),
         },
     )
 
@@ -781,6 +830,16 @@ async def create_database_ui(
             "client_max_body_size": env_vars.get(_CLIENT_MAX_BODY_SIZE_ENV_KEY, ""),
             "php_version": _extract_php_version_from_image(site),
             "wordpress_config_extra": env_vars.get(_WORDPRESS_CONFIG_EXTRA_ENV_KEY, ""),
+            "wp_memory_limit": env_vars.get(_WP_MEMORY_LIMIT_ENV_KEY, ""),
+            "wp_max_memory_limit": env_vars.get(_WP_MAX_MEMORY_LIMIT_ENV_KEY, ""),
+            "upload_max_filesize": env_vars.get(_UPLOAD_MAX_FILESIZE_ENV_KEY, ""),
+            "post_max_size": env_vars.get(_POST_MAX_SIZE_ENV_KEY, ""),
+            "max_execution_time": env_vars.get(_MAX_EXECUTION_TIME_ENV_KEY, ""),
+            "max_input_vars": env_vars.get(_MAX_INPUT_VARS_ENV_KEY, ""),
+            "display_errors": env_vars.get(_DISPLAY_ERRORS_ENV_KEY, ""),
+            "wp_debug": env_vars.get(_WP_DEBUG_ENV_KEY, ""),
+            "wp_debug_log": env_vars.get(_WP_DEBUG_LOG_ENV_KEY, ""),
+            "wp_cache": env_vars.get(_WP_CACHE_ENV_KEY, ""),
             "message": None,
             "error": None,
             "db_credentials": {
@@ -898,6 +957,16 @@ async def update_web_settings_ui(
     client_max_body_size: str = Form(""),
     php_version: str = Form(""),
     wordpress_config_extra: str = Form(""),
+    wp_memory_limit: str = Form(""),
+    wp_max_memory_limit: str = Form(""),
+    upload_max_filesize: str = Form(""),
+    post_max_size: str = Form(""),
+    max_execution_time: str = Form(""),
+    max_input_vars: str = Form(""),
+    display_errors: str = Form(""),
+    wp_debug: str = Form(""),
+    wp_debug_log: str = Form(""),
+    wp_cache: str = Form(""),
     db: Session = Depends(get_db),
 ):
     """Update per-site proxy/PHP/WordPress settings from the web UI."""
@@ -945,6 +1014,43 @@ async def update_web_settings_ui(
             env_vars[_WORDPRESS_CONFIG_EXTRA_ENV_KEY] = wp_extra
         else:
             env_vars.pop(_WORDPRESS_CONFIG_EXTRA_ENV_KEY, None)
+
+        try:
+            wp_size_settings = {
+                _WP_MEMORY_LIMIT_ENV_KEY: _normalize_optional_size_setting(wp_memory_limit),
+                _WP_MAX_MEMORY_LIMIT_ENV_KEY: _normalize_optional_size_setting(
+                    wp_max_memory_limit
+                ),
+                _UPLOAD_MAX_FILESIZE_ENV_KEY: _normalize_optional_size_setting(
+                    upload_max_filesize
+                ),
+                _POST_MAX_SIZE_ENV_KEY: _normalize_optional_size_setting(post_max_size),
+            }
+            wp_int_settings = {
+                _MAX_EXECUTION_TIME_ENV_KEY: _normalize_optional_int_setting(
+                    max_execution_time
+                ),
+                _MAX_INPUT_VARS_ENV_KEY: _normalize_optional_int_setting(max_input_vars),
+            }
+            wp_toggle_settings = {
+                _DISPLAY_ERRORS_ENV_KEY: _normalize_optional_toggle_setting(display_errors),
+                _WP_DEBUG_ENV_KEY: _normalize_optional_toggle_setting(wp_debug),
+                _WP_DEBUG_LOG_ENV_KEY: _normalize_optional_toggle_setting(wp_debug_log),
+                _WP_CACHE_ENV_KEY: _normalize_optional_toggle_setting(wp_cache),
+            }
+        except ValueError:
+            request.session["flash_error"] = (
+                "Invalid WordPress runtime settings. "
+                "Use size values like 64M, numeric values for time/input vars, "
+                "and true/false toggles."
+            )
+            return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+        for key, value in {**wp_size_settings, **wp_int_settings, **wp_toggle_settings}.items():
+            if value is None:
+                env_vars.pop(key, None)
+            else:
+                env_vars[key] = value
 
     _dump_site_env_vars(site, env_vars)
     db.commit()
