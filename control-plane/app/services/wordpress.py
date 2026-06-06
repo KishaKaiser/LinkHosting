@@ -35,6 +35,9 @@ _PHP_INI_KEYS = frozenset(
         "display_errors",
     }
 )
+_REQUIRED_DB_SECRET_KEYS = frozenset(
+    {"db_name", "db_user", "db_password", "db_root_password", "table_prefix"}
+)
 
 
 def _random_password(length: int = 24) -> str:
@@ -127,6 +130,48 @@ def _wordpress_environment(
     return env
 
 
+def _load_wordpress_secrets(secrets_file: Path) -> dict[str, str]:
+    """Load key/value pairs from a site's .secrets file."""
+    if not secrets_file.exists():
+        return {}
+
+    loaded: dict[str, str] = {}
+    for line in secrets_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key or not value:
+            continue
+        loaded[key] = value
+    return loaded
+
+
+def _default_wordpress_credentials(site_name: str) -> dict[str, str]:
+    safe_site_name = site_name.replace("-", "_")
+    return {
+        "db_root_password": _random_password(32),
+        "db_name": f"wp_{safe_site_name}",
+        "db_user": f"wp_{safe_site_name}",
+        "db_password": _random_password(32),
+        "table_prefix": "wp_",
+    }
+
+
+def _merged_wordpress_credentials(site_name: str, secrets_file: Path) -> dict[str, str]:
+    defaults = _default_wordpress_credentials(site_name)
+    existing = _load_wordpress_secrets(secrets_file)
+    return {key: existing.get(key) or defaults[key] for key in _REQUIRED_DB_SECRET_KEYS}
+
+
+def _has_required_db_credentials(credentials: dict[str, str]) -> bool:
+    return all(credentials.get(key) for key in _REQUIRED_DB_SECRET_KEYS)
+
+
 def generate_wordpress_compose(
     site_name: str,
     domain: str,
@@ -143,11 +188,12 @@ def generate_wordpress_compose(
     compose_file = site_dir / "docker-compose.yml"
     secrets_file = site_dir / ".secrets"
 
-    db_root_password = _random_password(32)
-    db_name = f"wp_{site_name.replace('-', '_')}"
-    db_user = f"wp_{site_name.replace('-', '_')}"
-    db_password = _random_password(32)
-    table_prefix = "wp_"
+    credentials = _merged_wordpress_credentials(site_name, secrets_file)
+    db_root_password = credentials["db_root_password"]
+    db_name = credentials["db_name"]
+    db_user = credentials["db_user"]
+    db_password = credentials["db_password"]
+    table_prefix = credentials["table_prefix"]
 
     wp_service = _wordpress_service_name(site_name)
     project = _compose_project_name(site_name)
@@ -203,15 +249,7 @@ def generate_wordpress_compose(
 
     compose_yaml = yaml.dump(compose_data, default_flow_style=False, sort_keys=False)
 
-    credentials = {
-        "db_name": db_name,
-        "db_user": db_user,
-        "db_password": db_password,
-        "db_root_password": db_root_password,
-        "table_prefix": table_prefix,
-        "wp_service": wp_service,
-        "project": project,
-    }
+    credentials.update({"wp_service": wp_service, "project": project})
 
     if settings.dev_mode:
         log.info("[DEV] Would write compose to %s:\n%s", compose_file, compose_yaml)
@@ -261,12 +299,9 @@ def deploy_wordpress(
         )
     else:
         # Re-read existing credentials from the secrets file
-        if secrets_file.exists():
-            for line in secrets_file.read_text().strip().splitlines():
-                k, _, v = line.partition("=")
-                credentials[k.strip()] = v.strip()
-        if not credentials:
-            # Regenerate if secrets file is missing or empty
+        credentials = _load_wordpress_secrets(secrets_file)
+        if not _has_required_db_credentials(credentials):
+            # Regenerate if secrets file is missing, malformed, empty, or partial
             _, credentials = generate_wordpress_compose(
                 site_name,
                 domain,
