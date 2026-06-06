@@ -49,6 +49,10 @@ def test_generate_wordpress_compose_prod_mode(tmp_path, monkeypatch):
     assert "wordpress:" in content
     assert "mariadb" in content
     assert credentials["db_password"] in content
+    php_ini_file = tmp_path / "mysite" / "php" / "conf.d" / "zz-linkhosting-runtime.ini"
+    assert php_ini_file.exists()
+    assert str(php_ini_file) in content
+    assert "/usr/local/etc/php/conf.d/zz-linkhosting-runtime.ini:ro" in content
 
     secrets_file = tmp_path / "mysite" / ".secrets"
     assert secrets_file.exists()
@@ -123,10 +127,36 @@ def test_generate_wordpress_compose_with_overrides(tmp_path, monkeypatch):
         "mysite.link",
         wordpress_image="wordpress:php8.2-apache",
         wordpress_env={"WORDPRESS_CONFIG_EXTRA": "define('WP_DEBUG', true);"},
+        php_ini_overrides={"upload_max_filesize": "64M", "post_max_size": "128M"},
     )
     content = compose_file.read_text()
     assert "wordpress:php8.2-apache" in content
     assert "WORDPRESS_CONFIG_EXTRA" in content
+    php_ini_content = (tmp_path / "mysite" / "php" / "conf.d" / "zz-linkhosting-runtime.ini").read_text()
+    assert "upload_max_filesize = 64M" in php_ini_content
+    assert "post_max_size = 128M" in php_ini_content
+
+
+def test_generate_wordpress_compose_creates_missing_sites_base_parent(tmp_path, monkeypatch):
+    monkeypatch.setenv("SITES_BASE_DIR", str(tmp_path / "missing" / "sites"))
+    monkeypatch.setenv("DEV_MODE", "false")
+    import importlib
+    import app.config as config_module
+    config_module.settings = config_module.Settings()
+
+    from app.services import wordpress as wp_module
+    importlib.reload(wp_module)
+
+    compose_file, _ = wp_module.generate_wordpress_compose(
+        "mysite",
+        "mysite.link",
+        php_ini_overrides={"upload_max_filesize": "256M"},
+    )
+
+    php_ini_file = tmp_path / "missing" / "sites" / "mysite" / "php" / "conf.d" / "zz-linkhosting-runtime.ini"
+    assert compose_file.exists()
+    assert php_ini_file.exists()
+    assert "upload_max_filesize = 256M" in php_ini_file.read_text()
 
 
 def test_extract_wordpress_env_overrides():
@@ -143,10 +173,40 @@ def test_extract_wordpress_env_overrides():
     parsed = extract_wordpress_env_overrides(env_json)
     assert "WORDPRESS_CONFIG_EXTRA" in parsed
     assert "define('WP_MEMORY_LIMIT', '256M');" in parsed["WORDPRESS_CONFIG_EXTRA"]
-    assert "@ini_set('upload_max_filesize', '64M');" in parsed["WORDPRESS_CONFIG_EXTRA"]
     assert "define('WP_CACHE', true);" in parsed["WORDPRESS_CONFIG_EXTRA"]
     assert "WORDPRESS_DB_NAME" not in parsed
     assert "OTHER" not in parsed
+
+
+def test_extract_php_ini_overrides():
+    from app.services.wordpress import extract_php_ini_overrides
+
+    env_json = (
+        '{"upload_max_filesize":"64M",'
+        '"post_max_size":"128M",'
+        '"max_execution_time":"180",'
+        '"display_errors":"0",'
+        '"OTHER":"value"}'
+    )
+    parsed = extract_php_ini_overrides(env_json)
+    assert parsed == {
+        "upload_max_filesize": "64M",
+        "post_max_size": "128M",
+        "max_execution_time": "180",
+        "display_errors": "Off",
+    }
+
+
+def test_extract_php_ini_overrides_ignores_injection_attempts():
+    from app.services.wordpress import extract_php_ini_overrides
+
+    env_json = (
+        '{"upload_max_filesize":"64M\\npost_max_size=128M",'
+        '"display_errors":"maybe",'
+        '"max_input_vars":"5000"}'
+    )
+    parsed = extract_php_ini_overrides(env_json)
+    assert parsed == {"max_input_vars": "5000"}
 
 
 def test_compose_project_name():

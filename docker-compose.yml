@@ -126,7 +126,11 @@ services:
       DNS_CONTAINER_NAME:  lh-dns
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - sites_data:/srv/linkhosting/sites
+      - type: bind
+        source: ${SITES_BASE_DIR_HOST:-/srv/linkhosting/sites}
+        target: /srv/linkhosting/sites
+        bind:
+          create_host_path: true
       - certs_data:/data/certs
       - sftp_data:/data/sftp
       - proxy_conf:/data/proxy/conf.d
@@ -167,7 +171,11 @@ services:
       DNS_CONTAINER_NAME:  lh-dns
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - sites_data:/srv/linkhosting/sites
+      - type: bind
+        source: ${SITES_BASE_DIR_HOST:-/srv/linkhosting/sites}
+        target: /srv/linkhosting/sites
+        bind:
+          create_host_path: true
       - proxy_conf:/data/proxy/conf.d
       - dns_hosts:/data/dns
     networks:
@@ -245,7 +253,11 @@ services:
     restart: unless-stopped
     volumes:
       - sftp_data:/data/sftp
-      - sites_data:/srv/linkhosting/sites
+      - type: bind
+        source: ${SITES_BASE_DIR_HOST:-/srv/linkhosting/sites}
+        target: /srv/linkhosting/sites
+        bind:
+          create_host_path: true
     networks:
       - backend
     ports:
@@ -256,7 +268,6 @@ volumes:
   db_data:
   db_pg_data:
   db_mysql_data:
-  sites_data:
   certs_data:
   sftp_data:
   proxy_conf:

@@ -8,6 +8,7 @@ import logging
 import secrets
 import string
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -38,6 +39,19 @@ _PHP_INI_KEYS = frozenset(
 _REQUIRED_DB_SECRET_KEYS = frozenset(
     {"db_name", "db_user", "db_password", "db_root_password", "table_prefix"}
 )
+_PHP_SIZE_RE = re.compile(r"^(0|[1-9]\d*)([kKmMgG])?$")
+_PHP_BOOL_VALUES = {
+    "1": "On",
+    "true": "On",
+    "on": "On",
+    "yes": "On",
+    "0": "Off",
+    "false": "Off",
+    "off": "Off",
+    "no": "Off",
+}
+_WORDPRESS_PHP_INI_RELATIVE_PATH = Path("php/conf.d/zz-linkhosting-runtime.ini")
+_WORDPRESS_PHP_INI_CONTAINER_PATH = "/usr/local/etc/php/conf.d/zz-linkhosting-runtime.ini"
 
 
 def _random_password(length: int = 24) -> str:
@@ -63,8 +77,8 @@ def _wordpress_service_name(site_name: str) -> str:
     return f"wp_{site_name.replace('-', '_')}"
 
 
-def extract_wordpress_env_overrides(env_vars_json: str | None) -> dict[str, str]:
-    """Extract user-defined WordPress env vars from a site's env JSON payload."""
+def _load_env_json(env_vars_json: str | None) -> dict[str, str]:
+    """Parse a site's env JSON payload into a string-only mapping."""
     if not env_vars_json:
         return {}
     try:
@@ -73,16 +87,21 @@ def extract_wordpress_env_overrides(env_vars_json: str | None) -> dict[str, str]
         return {}
     if not isinstance(loaded, dict):
         return {}
+    return {str(key): str(value) for key, value in loaded.items()}
+
+
+def extract_wordpress_env_overrides(env_vars_json: str | None) -> dict[str, str]:
+    """Extract user-defined WordPress env vars from a site's env JSON payload."""
+    loaded = _load_env_json(env_vars_json)
 
     out: dict[str, str] = {}
     generated_config_lines: list[str] = []
     for key, value in loaded.items():
-        key = str(key)
         if key.startswith("WORDPRESS_") and key not in _RESERVED_WORDPRESS_ENV:
-            out[key] = str(value)
+            out[key] = value
             continue
 
-        value_str = str(value).strip()
+        value_str = value.strip()
         if not value_str:
             continue
 
@@ -95,15 +114,48 @@ def extract_wordpress_env_overrides(env_vars_json: str | None) -> dict[str, str]
             generated_config_lines.append(f"define('{key}', {bool_value});")
             continue
 
-        if key in _PHP_INI_KEYS:
-            generated_config_lines.append(f"@ini_set('{key}', '{value_str}');")
-
     if generated_config_lines:
         generated_block = "\n".join(generated_config_lines)
         existing_extra = out.get("WORDPRESS_CONFIG_EXTRA", "").strip()
         out["WORDPRESS_CONFIG_EXTRA"] = (
             f"{existing_extra}\n{generated_block}" if existing_extra else generated_block
         )
+    return out
+
+
+def extract_php_ini_overrides(env_vars_json: str | None) -> dict[str, str]:
+    """Extract safe PHP ini overrides from a site's env JSON payload."""
+    loaded = _load_env_json(env_vars_json)
+    out: dict[str, str] = {}
+
+    for key, value in loaded.items():
+        if key not in _PHP_INI_KEYS:
+            continue
+        value_str = value.strip()
+        if not value_str:
+            continue
+
+        if key in {"upload_max_filesize", "post_max_size"}:
+            if not _PHP_SIZE_RE.match(value_str):
+                log.warning("Ignoring invalid PHP ini size override %s=%r", key, value_str)
+                continue
+            out[key] = value_str
+            continue
+
+        if key in {"max_execution_time", "max_input_vars"}:
+            if not value_str.isdigit():
+                log.warning("Ignoring invalid PHP ini integer override %s=%r", key, value_str)
+                continue
+            out[key] = value_str
+            continue
+
+        if key == "display_errors":
+            normalized = _PHP_BOOL_VALUES.get(value_str.lower())
+            if normalized is None:
+                log.warning("Ignoring invalid PHP ini boolean override %s=%r", key, value_str)
+                continue
+            out[key] = normalized
+
     return out
 
 
@@ -172,11 +224,36 @@ def _has_required_db_credentials(credentials: dict[str, str]) -> bool:
     return all(credentials.get(key) for key in _REQUIRED_DB_SECRET_KEYS)
 
 
+def wordpress_php_ini_path(site_name: str) -> Path:
+    """Return the managed PHP ini file path for a WordPress site."""
+    return site_project_dir(site_name) / _WORDPRESS_PHP_INI_RELATIVE_PATH
+
+
+def write_wordpress_php_ini(site_name: str, php_ini_overrides: dict[str, str] | None = None) -> Path:
+    """Write the managed PHP ini file for a WordPress site."""
+    php_ini_file = wordpress_php_ini_path(site_name)
+    php_ini_file.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = ["; Managed by LinkHosting"]
+    for key in sorted((php_ini_overrides or {}).keys()):
+        lines.append(f"{key} = {php_ini_overrides[key]}")
+    content = "\n".join(lines) + "\n"
+
+    if settings.dev_mode:
+        log.info("[DEV] Would write WordPress PHP ini to %s:\n%s", php_ini_file, content)
+    else:
+        php_ini_file.write_text(content)
+        log.info("Wrote WordPress PHP ini for site %s at %s", site_name, php_ini_file)
+
+    return php_ini_file
+
+
 def generate_wordpress_compose(
     site_name: str,
     domain: str,
     wordpress_image: str | None = None,
     wordpress_env: dict[str, str] | None = None,
+    php_ini_overrides: dict[str, str] | None = None,
 ) -> tuple[Path, dict]:
     """
     Generate docker-compose.yml for a WordPress site.
@@ -187,6 +264,7 @@ def generate_wordpress_compose(
     site_dir = site_project_dir(site_name)
     compose_file = site_dir / "docker-compose.yml"
     secrets_file = site_dir / ".secrets"
+    php_ini_file = write_wordpress_php_ini(site_name, php_ini_overrides)
 
     credentials = _merged_wordpress_credentials(site_name, secrets_file)
     db_root_password = credentials["db_root_password"]
@@ -214,6 +292,7 @@ def generate_wordpress_compose(
                 ),
                 "volumes": [
                     f"{site_name}-wp-content:/var/www/html/wp-content",
+                    f"{php_ini_file}:{_WORDPRESS_PHP_INI_CONTAINER_PATH}:ro",
                 ],
                 "networks": ["internal", "proxy"],
                 "labels": {
@@ -270,6 +349,7 @@ def deploy_wordpress(
     domain: str,
     wordpress_image: str | None = None,
     wordpress_env: dict[str, str] | None = None,
+    php_ini_overrides: dict[str, str] | None = None,
 ) -> tuple[str, str]:
     """
     Deploy a WordPress site using the Docker Engine API.
@@ -285,29 +365,19 @@ def deploy_wordpress(
     )
 
     site_dir = site_project_dir(site_name)
-    compose_file = site_dir / "docker-compose.yml"
     secrets_file = site_dir / ".secrets"
+    php_ini_file = wordpress_php_ini_path(site_name)
 
-    # Ensure compose/secrets files exist (generated once; re-used on redeploy)
-    credentials: dict = {}
-    if not compose_file.exists():
-        _, credentials = generate_wordpress_compose(
-            site_name,
-            domain,
-            wordpress_image=wordpress_image,
-            wordpress_env=wordpress_env,
-        )
-    else:
-        # Re-read existing credentials from the secrets file
+    # Always regenerate compose + managed ini so redeploys pick up settings changes.
+    _, credentials = generate_wordpress_compose(
+        site_name,
+        domain,
+        wordpress_image=wordpress_image,
+        wordpress_env=wordpress_env,
+        php_ini_overrides=php_ini_overrides,
+    )
+    if not _has_required_db_credentials(credentials):
         credentials = _load_wordpress_secrets(secrets_file)
-        if not _has_required_db_credentials(credentials):
-            # Regenerate if secrets file is missing, malformed, empty, or partial
-            _, credentials = generate_wordpress_compose(
-                site_name,
-                domain,
-                wordpress_image=wordpress_image,
-                wordpress_env=wordpress_env,
-            )
 
     project = _compose_project_name(site_name)
     wp_service = _wordpress_service_name(site_name)
@@ -379,10 +449,14 @@ def deploy_wordpress(
             table_prefix,
             wordpress_env=wordpress_env,
         ),
-        volumes={wp_content_vol: {"bind": "/var/www/html/wp-content", "mode": "rw"}},
+        volumes={
+            wp_content_vol: {"bind": "/var/www/html/wp-content", "mode": "rw"},
+            str(php_ini_file): {"bind": _WORDPRESS_PHP_INI_CONTAINER_PATH, "mode": "ro"},
+        },
         network=internal_net,
         extra_networks=[proxy_net],
         labels=common_labels,
+        force_recreate=True,
     )
 
     log.info("Deployed WordPress site %s via Docker API (project=%s)", site_name, project)
