@@ -53,6 +53,59 @@ def test_generate_wordpress_compose_prod_mode(tmp_path, monkeypatch):
     secrets_file = tmp_path / "mysite" / ".secrets"
     assert secrets_file.exists()
     assert oct(secrets_file.stat().st_mode)[-3:] == "600"
+    secrets_content = secrets_file.read_text()
+    assert f"db_password={credentials['db_password']}" in secrets_content
+    assert f"db_root_password={credentials['db_root_password']}" in secrets_content
+
+
+def test_generate_wordpress_compose_reuses_existing_secrets(tmp_path, monkeypatch):
+    monkeypatch.setenv("SITES_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("DEV_MODE", "false")
+    import importlib
+    import app.config as config_module
+    config_module.settings = config_module.Settings()
+
+    from app.services import wordpress as wp_module
+    importlib.reload(wp_module)
+
+    compose_file, first_credentials = wp_module.generate_wordpress_compose("mysite", "mysite.link")
+    compose_file, second_credentials = wp_module.generate_wordpress_compose("mysite", "mysite.link")
+
+    for key in ("db_name", "db_user", "db_password", "db_root_password", "table_prefix"):
+        assert second_credentials[key] == first_credentials[key]
+
+    content = compose_file.read_text()
+    assert second_credentials["db_password"] in content
+
+
+def test_generate_wordpress_compose_partial_secrets_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("SITES_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("DEV_MODE", "false")
+    import importlib
+    import app.config as config_module
+    config_module.settings = config_module.Settings()
+
+    from app.services import wordpress as wp_module
+    importlib.reload(wp_module)
+
+    site_dir = tmp_path / "mysite"
+    site_dir.mkdir(parents=True, exist_ok=True)
+    secrets_file = site_dir / ".secrets"
+    secrets_file.write_text(
+        "db_user=existing_user\n"
+        "db_password=existing_password\n"
+        "table_prefix=custom_\n"
+        "bad_line_without_equals\n"
+        "db_root_password=\n"
+    )
+
+    _, credentials = wp_module.generate_wordpress_compose("mysite", "mysite.link")
+
+    assert credentials["db_user"] == "existing_user"
+    assert credentials["db_password"] == "existing_password"
+    assert credentials["table_prefix"] == "custom_"
+    assert credentials["db_name"] == "wp_mysite"
+    assert credentials["db_root_password"]
 
 
 def test_generate_wordpress_compose_with_overrides(tmp_path, monkeypatch):
