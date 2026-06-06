@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}{{ site.name }} Files — LinkHosting{% endblock %}
+{% block content %}
+<div class="flex" style="justify-content: space-between; align-items: baseline;">
+    <h1>{{ site.name }} — File Manager</h1>
+    <div class="flex">
+        <a href="/panel/sites/{{ site.name }}" class="text-muted" style="font-size:0.9rem;">← Site</a>
+        <a href="/panel/" class="text-muted" style="font-size:0.9rem;">Dashboard</a>
+    </div>
+</div>
+
+{% if message %}
+<div class="alert alert-success" style="white-space: pre-wrap;">{{ message }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-error" style="white-space: pre-wrap;">{{ error }}</div>
+{% endif %}
+
+<div class="card">
+    <h2>Browse</h2>
+    <form method="get" action="/panel/sites/{{ site.name }}/files" class="flex" style="align-items:flex-end; gap:0.75rem; margin-bottom:0.75rem;">
+        <div class="form-group" style="margin-bottom:0; min-width: 260px;">
+            <label for="file-root">Root</label>
+            <select id="file-root" name="root">
+                {% for root_opt in roots %}
+                <option value="{{ root_opt.id }}" {% if root_opt.id == selected_root %}selected{% endif %}>{{ root_opt.label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <input type="hidden" name="path" value="{{ current_path }}" />
+        <button type="submit" class="btn btn-secondary">Switch Root</button>
+    </form>
+
+    <p class="text-muted" style="margin-bottom:0.5rem;">
+        {% for crumb in breadcrumbs %}
+            {% if not loop.first %} / {% endif %}
+            <a href="/panel/sites/{{ site.name }}/files?root={{ selected_root }}&path={{ crumb.path }}">{{ crumb.name }}</a>
+        {% endfor %}
+    </p>
+
+    {% if parent_path is not none %}
+    <p style="margin-top:0; margin-bottom:0.75rem;">
+        <a href="/panel/sites/{{ site.name }}/files?root={{ selected_root }}&path={{ parent_path }}">⬆ Parent</a>
+    </p>
+    {% endif %}
+
+    <table style="margin-bottom:1rem;">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Size</th>
+                <th>Modified</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for item in entries %}
+            <tr>
+                <td>
+                    {% if item.is_dir %}
+                    <a href="/panel/sites/{{ site.name }}/files?root={{ selected_root }}&path={{ item.rel_path }}">📁 {{ item.name }}</a>
+                    {% else %}
+                    📄 {{ item.name }}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if item.is_dir %}directory{% else %}file{% endif %}
+                    {% if item.is_symlink %} (symlink){% endif %}
+                </td>
+                <td>{% if item.is_dir %}—{% else %}{{ item.size }} bytes{% endif %}</td>
+                <td>{{ item.modified_at }}</td>
+                <td>
+                    {% if not item.is_dir %}
+                    <a href="/panel/sites/{{ site.name }}/files/download?root={{ selected_root }}&target_path={{ item.rel_path }}" class="text-muted">download</a>
+                    |
+                    <a href="/panel/sites/{{ site.name }}/files?root={{ selected_root }}&path={{ current_path }}&edit={{ item.rel_path }}" class="text-muted">edit</a>
+                    {% endif %}
+                </td>
+            </tr>
+        {% else %}
+            <tr><td colspan="5" class="text-muted">No files found.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:1rem;">
+        <form method="post" action="/panel/sites/{{ site.name }}/files/upload" enctype="multipart/form-data">
+            <input type="hidden" name="root" value="{{ selected_root }}" />
+            <input type="hidden" name="path" value="{{ current_path }}" />
+            <div class="form-group" style="margin-bottom:0.5rem;">
+                <label for="upload">Upload file</label>
+                <input type="file" id="upload" name="upload" required />
+            </div>
+            <button type="submit" class="btn btn-primary">Upload</button>
+        </form>
+
+        <form method="post" action="/panel/sites/{{ site.name }}/files/create-folder">
+            <input type="hidden" name="root" value="{{ selected_root }}" />
+            <input type="hidden" name="path" value="{{ current_path }}" />
+            <div class="form-group" style="margin-bottom:0.5rem;">
+                <label for="folder-name">Create folder</label>
+                <input type="text" id="folder-name" name="folder_name" placeholder="new-folder" required />
+            </div>
+            <button type="submit" class="btn btn-secondary">Create Folder</button>
+        </form>
+
+        <form method="post" action="/panel/sites/{{ site.name }}/files/create-text">
+            <input type="hidden" name="root" value="{{ selected_root }}" />
+            <input type="hidden" name="path" value="{{ current_path }}" />
+            <div class="form-group" style="margin-bottom:0.5rem;">
+                <label for="file-name">Create text file</label>
+                <input type="text" id="file-name" name="file_name" placeholder="notes.txt" required />
+            </div>
+            <div class="form-group" style="margin-bottom:0.5rem;">
+                <textarea name="file_content" rows="4" placeholder="Initial content..."></textarea>
+            </div>
+            <button type="submit" class="btn btn-secondary">Create File</button>
+        </form>
+
+        <form method="post" action="/panel/sites/{{ site.name }}/files/move">
+            <input type="hidden" name="root" value="{{ selected_root }}" />
+            <input type="hidden" name="path" value="{{ current_path }}" />
+            <div class="form-group" style="margin-bottom:0.5rem;">
+                <label for="src-path">Rename / move from</label>
+                <input type="text" id="src-path" name="src_path" placeholder="old/path.txt" required />
+            </div>
+            <div class="form-group" style="margin-bottom:0.5rem;">
+                <input type="text" name="dest_path" placeholder="new/path.txt" required />
+            </div>
+            <button type="submit" class="btn btn-secondary">Move</button>
+        </form>
+
+        <form method="post" action="/panel/sites/{{ site.name }}/files/delete"
+              onsubmit="return confirm('Delete this file or folder? This cannot be undone.')">
+            <input type="hidden" name="root" value="{{ selected_root }}" />
+            <input type="hidden" name="path" value="{{ current_path }}" />
+            <div class="form-group" style="margin-bottom:0.5rem;">
+                <label for="target-path">Delete path</label>
+                <input type="text" id="target-path" name="target_path" placeholder="path/to/delete" required />
+            </div>
+            <button type="submit" class="btn btn-danger">Delete</button>
+        </form>
+    </div>
+</div>
+
+{% if editable_path %}
+<div class="card">
+    <h2>Edit Text File</h2>
+    <p class="text-muted" style="margin-bottom:0.75rem;"><code>{{ editable_path }}</code></p>
+    <form method="post" action="/panel/sites/{{ site.name }}/files/save-text">
+        <input type="hidden" name="root" value="{{ selected_root }}" />
+        <input type="hidden" name="path" value="{{ current_path }}" />
+        <input type="hidden" name="edit_path" value="{{ editable_path }}" />
+        <div class="form-group">
+            <textarea name="file_content" rows="18" style="font-family:monospace; font-size:0.85rem;">{{ editable_content }}</textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">💾 Save File</button>
+    </form>
+</div>
+{% endif %}
+{% endblock %}

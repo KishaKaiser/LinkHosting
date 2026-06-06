@@ -45,6 +45,7 @@
         <form method="post" action="/panel/sites/{{ site.name }}/issue-cert">
             <button type="submit" class="btn btn-success">🔒 Issue SSL Certificate</button>
         </form>
+        <a href="/panel/sites/{{ site.name }}/files" class="btn btn-secondary">🗂 File Manager</a>
         <form method="post" action="/panel/sites/{{ site.name }}/delete"
               onsubmit="return confirm('Delete site {{ site.name }}? This cannot be undone.')">
             <button type="submit" class="btn btn-danger">🗑 Delete</button>

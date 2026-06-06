@@ -11,6 +11,7 @@ Provision and manage multiple isolated websites on a single server via a **web-b
 | Feature | Details |
 |---------|---------|
 | **Web Control Panel** | Browser UI at `/panel/` — login, dashboard, create sites, deploy, view logs |
+| **Per-site File Manager** | Browse and manage each site's host files; WordPress sites also include live `wp-content` access |
 | **Site types** | Static, PHP, Node.js, Python, Reverse Proxy, **WordPress** |
 | **WordPress (one-click)** | Per-site docker-compose with WordPress + MariaDB, unique credentials |
 | **Background Jobs** | Redis + RQ worker for async WordPress deployments |

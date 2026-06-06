@@ -11,14 +11,20 @@ import posixpath
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
 from app.models import DatabaseEngine, DeployJob, JobStatus, Site, SiteDatabase, SiteStatus, SiteType
+from app.services.file_manager import (
+    FileManagerError,
+    available_roots_for_site,
+    breadcrumbs,
+    resolve_backend,
+)
 
 log = logging.getLogger(__name__)
 
@@ -386,6 +392,270 @@ async def site_detail(request: Request, site_name: str, db: Session = Depends(ge
             "wp_debug_log": env_vars.get(_WP_DEBUG_LOG_ENV_KEY, ""),
             "wp_cache": env_vars.get(_WP_CACHE_ENV_KEY, ""),
         },
+    )
+
+
+def _redirect_to_file_manager(
+    request: Request,
+    site_name: str,
+    root: str,
+    path: str,
+) -> RedirectResponse:
+    target = request.url_for("site_files_page", site_name=site_name).include_query_params(
+        root=root,
+        path=path,
+    )
+    return RedirectResponse(str(target), status_code=302)
+
+
+@router.get("/sites/{site_name}/files", response_class=HTMLResponse)
+async def site_files_page(
+    request: Request,
+    site_name: str,
+    root: str = Query("host"),
+    path: str = Query(""),
+    edit: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    roots = available_roots_for_site(site)
+    message = request.session.pop("flash_message", None)
+    error = request.session.pop("flash_error", None)
+
+    selected_root = root
+    current_path = ""
+    parent_path = None
+    entries = []
+    crumb_items = breadcrumbs("")
+    editable_path = ""
+    editable_content = ""
+
+    try:
+        selected_root_obj, backend = resolve_backend(site, root)
+        selected_root = selected_root_obj.id
+        current_path, parent_path, entries = backend.list_dir(path)
+        crumb_items = breadcrumbs(current_path)
+        if edit:
+            editable_path, editable_content = backend.read_text_file(edit)
+    except FileManagerError as exc:
+        error = str(exc)
+
+    return templates.TemplateResponse(
+        request,
+        "site_files.html",
+        {
+            "site": site,
+            "roots": roots,
+            "selected_root": selected_root,
+            "current_path": current_path,
+            "parent_path": parent_path,
+            "breadcrumbs": crumb_items,
+            "entries": entries,
+            "editable_path": editable_path,
+            "editable_content": editable_content,
+            "message": message,
+            "error": error,
+        },
+    )
+
+
+@router.post("/sites/{site_name}/files/create-folder")
+async def file_manager_create_folder(
+    request: Request,
+    site_name: str,
+    root: str = Form("host"),
+    path: str = Form(""),
+    folder_name: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    try:
+        _, backend = resolve_backend(site, root)
+        created = backend.create_folder(path, folder_name)
+        request.session["flash_message"] = f"Folder created: {created}"
+    except FileManagerError as exc:
+        request.session["flash_error"] = str(exc)
+    return _redirect_to_file_manager(request, site.name, root, path)
+
+
+@router.post("/sites/{site_name}/files/create-text")
+async def file_manager_create_text(
+    request: Request,
+    site_name: str,
+    root: str = Form("host"),
+    path: str = Form(""),
+    file_name: str = Form(""),
+    file_content: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    try:
+        _, backend = resolve_backend(site, root)
+        created = backend.create_text_file(path, file_name, file_content)
+        request.session["flash_message"] = f"File created: {created}"
+    except FileManagerError as exc:
+        request.session["flash_error"] = str(exc)
+    return _redirect_to_file_manager(request, site.name, root, path)
+
+
+@router.post("/sites/{site_name}/files/upload")
+async def file_manager_upload(
+    request: Request,
+    site_name: str,
+    root: str = Form("host"),
+    path: str = Form(""),
+    upload: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    try:
+        content = await upload.read()
+        if not upload.filename:
+            raise FileManagerError("Missing upload filename.")
+        _, backend = resolve_backend(site, root)
+        created = backend.upload_file(path, upload.filename, content)
+        request.session["flash_message"] = f"Uploaded: {created}"
+    except FileManagerError as exc:
+        request.session["flash_error"] = str(exc)
+    return _redirect_to_file_manager(request, site.name, root, path)
+
+
+@router.post("/sites/{site_name}/files/save-text")
+async def file_manager_save_text(
+    request: Request,
+    site_name: str,
+    root: str = Form("host"),
+    path: str = Form(""),
+    edit_path: str = Form(""),
+    file_content: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    try:
+        _, backend = resolve_backend(site, root)
+        updated = backend.save_text_file(edit_path, file_content)
+        request.session["flash_message"] = f"Saved: {updated}"
+    except FileManagerError as exc:
+        request.session["flash_error"] = str(exc)
+    return _redirect_to_file_manager(request, site.name, root, path)
+
+
+@router.post("/sites/{site_name}/files/move")
+async def file_manager_move(
+    request: Request,
+    site_name: str,
+    root: str = Form("host"),
+    path: str = Form(""),
+    src_path: str = Form(""),
+    dest_path: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    try:
+        _, backend = resolve_backend(site, root)
+        moved = backend.move(src_path, dest_path)
+        request.session["flash_message"] = f"Moved to: {moved}"
+    except FileManagerError as exc:
+        request.session["flash_error"] = str(exc)
+    return _redirect_to_file_manager(request, site.name, root, path)
+
+
+@router.post("/sites/{site_name}/files/delete")
+async def file_manager_delete(
+    request: Request,
+    site_name: str,
+    root: str = Form("host"),
+    path: str = Form(""),
+    target_path: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    try:
+        _, backend = resolve_backend(site, root)
+        deleted = backend.delete(target_path)
+        request.session["flash_message"] = f"Deleted: {deleted}"
+    except FileManagerError as exc:
+        request.session["flash_error"] = str(exc)
+    return _redirect_to_file_manager(request, site.name, root, path)
+
+
+@router.get("/sites/{site_name}/files/download")
+async def file_manager_download(
+    request: Request,
+    site_name: str,
+    root: str = Query("host"),
+    target_path: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    try:
+        _, backend = resolve_backend(site, root)
+        filename, content, content_type = backend.download_file(target_path)
+    except FileManagerError as exc:
+        request.session["flash_error"] = str(exc)
+        return _redirect_to_file_manager(request, site.name, root, "")
+
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(
+        iter([content]),
+        media_type=content_type,
+        headers=headers,
     )
 
 
