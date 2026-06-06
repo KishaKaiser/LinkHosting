@@ -34,6 +34,7 @@ def run_wordpress_deploy(job_id: int) -> None:
     from app.models import DeployJob, JobStatus, Site, SiteStatus
     from app.services.wordpress import (
         deploy_wordpress,
+        extract_php_ini_overrides,
         extract_wordpress_env_overrides,
         generate_wordpress_compose,
     )
@@ -67,12 +68,14 @@ def run_wordpress_deploy(job_id: int) -> None:
 
         try:
             wordpress_env = extract_wordpress_env_overrides(site.env_vars)
+            php_ini_overrides = extract_php_ini_overrides(site.env_vars)
             # 1. Generate docker-compose.yml
             compose_file, _ = generate_wordpress_compose(
                 site.name,
                 site.domain,
                 wordpress_image=site.image,
                 wordpress_env=wordpress_env,
+                php_ini_overrides=php_ini_overrides,
             )
             log_lines.append(f"Generated compose file: {compose_file}")
 
@@ -82,6 +85,7 @@ def run_wordpress_deploy(job_id: int) -> None:
                 site.domain,
                 wordpress_image=site.image,
                 wordpress_env=wordpress_env,
+                php_ini_overrides=php_ini_overrides,
             )
             if stdout:
                 log_lines.append(stdout)

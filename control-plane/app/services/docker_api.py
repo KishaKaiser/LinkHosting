@@ -59,6 +59,7 @@ def run_container(
     extra_networks: list | None = None,
     labels: dict,
     restart_policy: str = "unless-stopped",
+    force_recreate: bool = False,
 ) -> str:
     """Create and start a container, returning its ID.
 
@@ -71,10 +72,10 @@ def run_container(
     # Check for an existing container with this name
     try:
         existing = client.containers.get(name)
-        if existing.status == "running":
+        if existing.status == "running" and not force_recreate:
             log.info("Container %s already running (%s)", name, existing.id[:12])
             return existing.id
-        # Stopped or otherwise non-running — remove so we can recreate
+        # Stopped or force-recreated — remove so we can recreate
         existing.remove(force=True)
         log.info("Removed stale container %s", name)
     except docker.errors.NotFound:

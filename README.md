@@ -234,6 +234,7 @@ See [docs/ca-trust.md](docs/ca-trust.md) for other platforms (macOS, Windows, Fi
 | `DOMAIN_SUFFIX` | | `link` | Suffix for auto-generated site domains |
 | `PANEL_PORT` | | `127.0.0.1:8000` | Host:port to expose the panel on |
 | `SFTP_PORT` | | `2222` | Host port for SFTP server |
+| `SITES_BASE_DIR_HOST` | | `/srv/linkhosting/sites` | Host path for per-site project files and bind-mounted WordPress PHP ini overrides |
 | `DEV_MODE` | | `false` | Skip real Docker calls (for local dev) |
 | `DNS_ENABLED` | | `true` | Enable built-in CoreDNS and auto DNS record management |
 | `HOST_LAN_IP` | | — | Server LAN IP; A records for `sitename.link` resolve here |
@@ -250,10 +251,13 @@ See [docs/ca-trust.md](docs/ca-trust.md) for other platforms (macOS, Windows, Fi
 4. The `worker` container picks it up and:
    - Creates `/srv/linkhosting/sites/<name>/docker-compose.yml` with `wordpress` + `mariadb` services
    - Generates unique random credentials and writes them to `/srv/linkhosting/sites/<name>/.secrets`
+   - Writes `/srv/linkhosting/sites/<name>/php/conf.d/zz-linkhosting-runtime.ini` for PHP runtime overrides and bind-mounts it into the WordPress container
    - Runs `docker compose -f ... -p lh_wp_<name> up -d --remove-orphans`
    - Writes an Nginx vhost config and reloads Nginx
 5. Job status is updated to `succeeded` or `failed` with captured stdout/stderr logs
 6. Panel UI shows the job status and logs on the site detail page
+
+> After upgrading to a version with host-managed WordPress PHP ini files, recreate the main stack so the `panel`, `worker`, and `sftp-server` services pick up the host bind mount for `SITES_BASE_DIR_HOST` (for example: `docker compose up -d --build --force-recreate panel worker sftp-server`).
 
 ---
 

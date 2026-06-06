@@ -112,6 +112,25 @@ def test_run_container_already_running():
     assert cid == mock_client.containers.get.return_value.id
 
 
+def test_run_container_force_recreate_running():
+    """force_recreate should replace even a running container."""
+    mock_client = _make_client_mock(container_exists=True, container_status="running")
+    with patch("app.services.docker_api._client", return_value=mock_client):
+        from app.services import docker_api
+        cid = docker_api.run_container(
+            name="my_container",
+            image="nginx",
+            environment={},
+            volumes={},
+            network="my_net",
+            labels={},
+            force_recreate=True,
+        )
+    mock_client.containers.get.return_value.remove.assert_called_once_with(force=True)
+    mock_client.containers.run.assert_called_once()
+    assert cid == mock_client.containers.run.return_value.id
+
+
 def test_run_container_removes_stale_and_starts():
     """Stopped container should be removed then re-created."""
     mock_client = _make_client_mock(container_exists=True, container_status="exited")
@@ -240,7 +259,14 @@ def test_deploy_wordpress_prod_mode_calls_docker_api(tmp_path, monkeypatch):
             patch("app.services.docker_api.create_volume") as mock_vol,
             patch("app.services.docker_api.run_container") as mock_run,
         ):
-            stdout, stderr = wp_module.deploy_wordpress("testsite", "testsite.link")
+            stdout, stderr = wp_module.deploy_wordpress(
+                "testsite",
+                "testsite.link",
+                php_ini_overrides={
+                    "upload_max_filesize": "256M",
+                    "post_max_size": "128M",
+                },
+            )
     finally:
         # Restore settings so subsequent tests are not affected
         config_module.settings = original_settings
@@ -252,6 +278,16 @@ def test_deploy_wordpress_prod_mode_calls_docker_api(tmp_path, monkeypatch):
     assert mock_vol.call_count == 2
     # Containers: db + wordpress
     assert mock_run.call_count == 2
+    wordpress_call = mock_run.call_args_list[1]
+    assert wordpress_call.kwargs["force_recreate"] is True
+    expected_ini = tmp_path / "testsite" / "php" / "conf.d" / "zz-linkhosting-runtime.ini"
+    assert wordpress_call.kwargs["volumes"][str(expected_ini)] == {
+        "bind": "/usr/local/etc/php/conf.d/zz-linkhosting-runtime.ini",
+        "mode": "ro",
+    }
+    assert expected_ini.exists()
+    assert "upload_max_filesize = 256M" in expected_ini.read_text()
+    assert "post_max_size = 128M" in expected_ini.read_text()
     assert "testsite" in stdout
 
 

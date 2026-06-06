@@ -219,6 +219,7 @@ def _run_deploy_inline(job_record: DeployJob, site: Site, db: Session) -> None:
     """Execute a WordPress deploy synchronously using the provided DB session."""
     from app.services.wordpress import (
         deploy_wordpress,
+        extract_php_ini_overrides,
         extract_wordpress_env_overrides,
         generate_wordpress_compose,
     )
@@ -230,11 +231,13 @@ def _run_deploy_inline(job_record: DeployJob, site: Site, db: Session) -> None:
     log_lines: list[str] = []
     try:
         wordpress_env = extract_wordpress_env_overrides(site.env_vars)
+        php_ini_overrides = extract_php_ini_overrides(site.env_vars)
         compose_file, _ = generate_wordpress_compose(
             site.name,
             site.domain,
             wordpress_image=site.image,
             wordpress_env=wordpress_env,
+            php_ini_overrides=php_ini_overrides,
         )
         log_lines.append(f"Generated compose file: {compose_file}")
 
@@ -243,6 +246,7 @@ def _run_deploy_inline(job_record: DeployJob, site: Site, db: Session) -> None:
             site.domain,
             wordpress_image=site.image,
             wordpress_env=wordpress_env,
+            php_ini_overrides=php_ini_overrides,
         )
         if stdout:
             log_lines.append(stdout)
