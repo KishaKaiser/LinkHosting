@@ -167,6 +167,8 @@ curl -s -X POST http://localhost:8000/sites/myapp/import-github \
 
 Both calls clone the repo into `/data/sites/<name>/` and record `git_repo` + `git_branch` on the site.
 
+If a site is already linked to GitHub, use the **Update** button on the site detail page in `/panel/` to pull the latest commits without re-importing/reinstalling the site.
+
 ### Deploy a site (provision container + vhost)
 
 ```bash

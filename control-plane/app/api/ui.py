@@ -661,6 +661,39 @@ async def file_manager_download(
 
 # ── Deploy action ─────────────────────────────────────────────────────────────
 
+@router.post("/sites/{site_name}/update")
+async def update_site_ui(request: Request, site_name: str, db: Session = Depends(get_db)):
+    """Pull the latest code for a GitHub-linked site without re-importing it."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    if not site.git_repo:
+        request.session["flash_error"] = (
+            "This site is not linked to a GitHub repository. "
+            "Set a repository when creating/importing the site first."
+        )
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    from app.services.github import pull_repo
+
+    try:
+        pull_repo(Path(settings.sites_base_dir) / site.name, branch=site.git_branch)
+        request.session["flash_message"] = (
+            "Repository updated successfully. "
+            "Redeploy the site if runtime/build changes are required."
+        )
+    except Exception as exc:
+        log.exception("UI: update failed for %s", site_name)
+        request.session["flash_error"] = f"Update failed: {exc}"
+
+    return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+
 @router.post("/sites/{site_name}/deploy")
 async def deploy_site_ui(request: Request, site_name: str, db: Session = Depends(get_db)):
     redirect = _require_login(request)
