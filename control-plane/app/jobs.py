@@ -123,3 +123,85 @@ def run_wordpress_deploy(job_id: int) -> None:
 
     finally:
         db.close()
+
+
+def run_pl_cms_deploy(job_id: int) -> None:
+    """Entry point called by the RQ worker for PL_CMS deploy jobs."""
+    os.environ.setdefault("DATABASE_URL", "sqlite:///./dev.db")
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from app.config import settings
+    from app.models import DeployJob, JobStatus, Site, SiteStatus
+    from app.services.dns import add_dns_record
+    from app.services.pl_cms import deploy_pl_cms, generate_pl_cms_compose, get_pl_cms_container_name
+    from app.services.proxy import reload_proxy, write_vhost
+
+    engine = create_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+        connect_args={"check_same_thread": False}
+        if settings.database_url.startswith("sqlite") else {},
+    )
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    try:
+        job = db.query(DeployJob).filter(DeployJob.id == job_id).first()
+        if not job:
+            log.error("DeployJob %d not found", job_id)
+            return
+
+        site = db.query(Site).filter(Site.id == job.site_id).first()
+        if not site:
+            log.error("Site for DeployJob %d not found", job_id)
+            job.status = JobStatus.failed
+            job.logs = "Site record not found"
+            db.commit()
+            return
+
+        job.status = JobStatus.running
+        db.commit()
+
+        log_lines: list[str] = []
+
+        try:
+            compose_file, _ = generate_pl_cms_compose(
+                site.name,
+                site.domain,
+                site.env_vars,
+            )
+            log_lines.append(f"Generated compose file: {compose_file}")
+
+            stdout, stderr = deploy_pl_cms(site.name, site.domain, site.env_vars)
+            if stdout:
+                log_lines.append(stdout)
+            if stderr:
+                log_lines.append(stderr)
+
+            write_vhost(site, tls=False)
+            log_lines.append(f"Wrote nginx vhost for {site.domain}")
+            reload_proxy()
+            log_lines.append("Nginx reloaded")
+
+            add_dns_record(site.domain)
+            log_lines.append(f"Added DNS record for {site.domain}")
+
+            site.container_id = get_pl_cms_container_name(site.name, "web")
+            site.status = SiteStatus.running
+            db.commit()
+
+            job.status = JobStatus.succeeded
+            job.logs = "\n".join(log_lines)
+            db.commit()
+            log.info("DeployJob %d for site %s succeeded", job_id, site.name)
+        except Exception as exc:
+            log.exception("DeployJob %d failed", job_id)
+            log_lines.append(f"ERROR: {exc}")
+            job.status = JobStatus.failed
+            job.logs = "\n".join(log_lines)
+            site.status = SiteStatus.error
+            db.commit()
+    finally:
+        db.close()

@@ -659,41 +659,6 @@ async def file_manager_download(
     )
 
 
-# ── Deploy action ─────────────────────────────────────────────────────────────
-
-@router.post("/sites/{site_name}/update")
-async def update_site_ui(request: Request, site_name: str, db: Session = Depends(get_db)):
-    """Pull the latest code for a GitHub-linked site without re-importing it."""
-    redirect = _require_login(request)
-    if redirect:
-        return redirect
-
-    site = db.query(Site).filter(Site.name == site_name).first()
-    if not site:
-        return RedirectResponse("/panel/", status_code=302)
-
-    if not site.git_repo:
-        request.session["flash_error"] = (
-            "This site is not linked to a GitHub repository. "
-            "Set a repository when creating/importing the site first."
-        )
-        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
-
-    from app.services.github import pull_repo
-
-    try:
-        pull_repo(Path(settings.sites_base_dir) / site.name, branch=site.git_branch)
-        request.session["flash_message"] = (
-            "Repository updated successfully. "
-            "Redeploy the site if runtime/build changes are required."
-        )
-    except Exception as exc:
-        log.exception("UI: update failed for %s", site_name)
-        request.session["flash_error"] = f"Update failed: {exc}"
-
-    return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
-
-
 @router.post("/sites/{site_name}/deploy")
 async def deploy_site_ui(request: Request, site_name: str, db: Session = Depends(get_db)):
     redirect = _require_login(request)
@@ -704,7 +669,7 @@ async def deploy_site_ui(request: Request, site_name: str, db: Session = Depends
     if not site:
         return RedirectResponse("/panel/", status_code=302)
 
-    if site.site_type == SiteType.wordpress:
+    if site.site_type in (SiteType.wordpress, SiteType.pl_cms):
         # Enqueue background job via RQ
         job_record = DeployJob(site_id=site.id, status=JobStatus.queued)
         db.add(job_record)
@@ -720,7 +685,7 @@ async def deploy_site_ui(request: Request, site_name: str, db: Session = Depends
             f"Deploy job #{job_record.id} queued. Refresh to see status."
         )
     else:
-        # Synchronous deploy for non-WordPress sites
+        # Synchronous deploy for non-compose sites
         from app.services.container import provision_container
         from app.services.proxy import write_vhost, reload_proxy
 
@@ -749,8 +714,10 @@ def _enqueue_deploy_job(job_record: "DeployJob", site: "Site", db: "Session") ->
 
         conn = redis.from_url(settings.redis_url)
         q = Queue("deploy", connection=conn)
-        from app.jobs import run_wordpress_deploy
-        rq_job = q.enqueue(run_wordpress_deploy, job_record.id)
+        from app.jobs import run_pl_cms_deploy, run_wordpress_deploy
+
+        runner = run_wordpress_deploy if site.site_type == SiteType.wordpress else run_pl_cms_deploy
+        rq_job = q.enqueue(runner, job_record.id)
         log.info("Enqueued RQ job %s for DeployJob %d", rq_job.id, job_record.id)
         return rq_job.id
     except Exception as exc:
@@ -782,6 +749,12 @@ async def stop_site_ui(request: Request, site_name: str, db: Session = Depends(g
             stop_wordpress(site.name)
         except Exception as exc:
             log.warning("Could not stop WordPress site %s: %s", site_name, exc)
+    elif site.site_type == SiteType.pl_cms:
+        from app.services.pl_cms import stop_pl_cms
+        try:
+            stop_pl_cms(site.name)
+        except Exception as exc:
+            log.warning("Could not stop PL_CMS site %s: %s", site_name, exc)
     else:
         from app.services.container import stop_container
         stop_container(site)
@@ -811,6 +784,12 @@ async def delete_site_ui(request: Request, site_name: str, db: Session = Depends
             stop_wordpress(site.name)
         except Exception as exc:
             log.warning("Could not stop WordPress site %s during delete: %s", site_name, exc)
+    elif site.site_type == SiteType.pl_cms:
+        from app.services.pl_cms import stop_pl_cms
+        try:
+            stop_pl_cms(site.name)
+        except Exception as exc:
+            log.warning("Could not stop PL_CMS site %s during delete: %s", site_name, exc)
     else:
         from app.services.container import stop_container
         stop_container(site)
@@ -841,6 +820,8 @@ async def settings_page(request: Request):
             "message": message,
             "error": error,
             "github_token_configured": bool(settings.github_token),
+            "linkhosting_repo_dir": settings.linkhosting_repo_dir,
+            "linkhosting_repo_branch": settings.linkhosting_repo_branch,
         },
     )
 
@@ -860,7 +841,13 @@ async def change_password_post(
         return templates.TemplateResponse(
             request,
             "settings.html",
-            {"message": None, "error": msg, "github_token_configured": bool(settings.github_token)},
+            {
+                "message": None,
+                "error": msg,
+                "github_token_configured": bool(settings.github_token),
+                "linkhosting_repo_dir": settings.linkhosting_repo_dir,
+                "linkhosting_repo_branch": settings.linkhosting_repo_branch,
+            },
             status_code=422,
         )
 
@@ -895,6 +882,54 @@ async def change_password_post(
 
 
 # ── GitHub token ──────────────────────────────────────────────────────────────
+
+# ── LinkHosting app update ────────────────────────────────────────────────────
+
+@router.post("/settings/update-linkhosting")
+async def update_linkhosting_post(request: Request):
+    """Pull the latest LinkHosting code from the configured Git checkout."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    repo_dir = Path(settings.linkhosting_repo_dir).expanduser() if settings.linkhosting_repo_dir else None
+    if not repo_dir or not (repo_dir / ".git").exists():
+        request.session["flash_error"] = (
+            "LinkHosting updates are not configured. Set LINKHOSTING_REPO_DIR to "
+            "the local LinkHosting Git checkout that should track origin/main."
+        )
+        return RedirectResponse("/panel/settings", status_code=302)
+
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "pull", "--ff-only", "origin", settings.linkhosting_repo_branch],
+            cwd=str(repo_dir),
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode == 0:
+            request.session["flash_message"] = (
+                f"LinkHosting updated from GitHub {settings.linkhosting_repo_branch}. "
+                "Rebuild/restart the LinkHosting stack and run migrations if needed."
+                + (f"\n\n{output}" if output else "")
+            )
+        else:
+            request.session["flash_error"] = (
+                f"LinkHosting update failed (exit {result.returncode})."
+                + (f"\n\n{output}" if output else "")
+            )
+    except subprocess.TimeoutExpired:
+        request.session["flash_error"] = "LinkHosting update timed out after 180 seconds."
+    except Exception as exc:
+        log.exception("LinkHosting update error")
+        request.session["flash_error"] = f"LinkHosting update error: {exc}"
+
+    return RedirectResponse("/panel/settings", status_code=302)
+
 
 # ── Database migrations ───────────────────────────────────────────────────────
 

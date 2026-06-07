@@ -25,6 +25,7 @@ class SiteType(str, enum.Enum):
     python = "python"
     proxy = "proxy"
     wordpress = "wordpress"
+    pl_cms = "pl_cms"
 
 
 class SiteStatus(str, enum.Enum):

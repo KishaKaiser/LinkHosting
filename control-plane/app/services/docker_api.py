@@ -49,6 +49,45 @@ def create_volume(name: str) -> str:
         return vol.name
 
 
+def build_image(
+    *,
+    path: str,
+    dockerfile: str,
+    tag: str,
+    buildargs: dict | None = None,
+    labels: dict | None = None,
+) -> str:
+    """Build a Docker image and return its id."""
+    client = _client()
+    try:
+        image, _ = client.images.build(
+            path=path,
+            dockerfile=dockerfile,
+            tag=tag,
+            rm=True,
+            forcerm=True,
+            pull=False,
+            buildargs=buildargs or {},
+            labels=labels or {},
+        )
+    except docker.errors.BuildError as exc:
+        message = str(exc)
+        for entry in reversed(exc.build_log):
+            detail = entry.get("errorDetail") or {}
+            if detail.get("message"):
+                message = detail["message"]
+                break
+            if entry.get("error"):
+                message = entry["error"]
+                break
+        raise RuntimeError(f"Docker build failed for {tag}: {message}") from exc
+    except docker.errors.APIError as exc:
+        raise RuntimeError(f"Docker build failed for {tag}: {exc.explanation}") from exc
+
+    log.info("Built image %s (%s)", tag, image.id[:12])
+    return image.id
+
+
 def run_container(
     *,
     name: str,

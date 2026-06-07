@@ -134,6 +134,9 @@ def delete_site(site_name: str, db: Session = Depends(get_db)):
     if site.site_type == SiteType.wordpress:
         from app.services.wordpress import stop_wordpress
         stop_wordpress(site.name)
+    elif site.site_type == SiteType.pl_cms:
+        from app.services.pl_cms import stop_pl_cms
+        stop_pl_cms(site.name)
     else:
         from app.services.container import stop_container
         stop_container(site)
@@ -153,9 +156,8 @@ def deploy_site(site_name: str, db: Session = Depends(get_db)):
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
 
-    # WordPress sites are deployed asynchronously via docker-compose
-    if site.site_type == SiteType.wordpress:
-        return _deploy_wordpress_async(site, db)
+    if site.site_type in (SiteType.wordpress, SiteType.pl_cms):
+        return _deploy_compose_site_async(site, db)
 
     from app.services.container import provision_container
     from app.services.proxy import write_vhost, reload_proxy
@@ -187,8 +189,8 @@ def deploy_site(site_name: str, db: Session = Depends(get_db)):
     return site
 
 
-def _deploy_wordpress_async(site: Site, db: Session) -> Site:
-    """Create a DeployJob and enqueue it; return the site record."""
+def _deploy_compose_site_async(site: Site, db: Session) -> Site:
+    """Create a DeployJob and enqueue it for compose-managed site types."""
     job_record = DeployJob(site_id=site.id, status=JobStatus.queued)
     db.add(job_record)
     db.commit()
@@ -197,14 +199,15 @@ def _deploy_wordpress_async(site: Site, db: Session) -> Site:
     try:
         import redis as _redis
         from rq import Queue
-        from app.jobs import run_wordpress_deploy
+        from app.jobs import run_pl_cms_deploy, run_wordpress_deploy
 
         conn = _redis.from_url(settings.redis_url)
         q = Queue("deploy", connection=conn)
-        rq_job = q.enqueue(run_wordpress_deploy, job_record.id)
+        runner = run_wordpress_deploy if site.site_type == SiteType.wordpress else run_pl_cms_deploy
+        rq_job = q.enqueue(runner, job_record.id)
         job_record.rq_job_id = rq_job.id
         db.commit()
-        log.info("Enqueued WordPress deploy job %d (rq=%s) for site %s",
+        log.info("Enqueued compose deploy job %d (rq=%s) for site %s",
                  job_record.id, rq_job.id, site.name)
     except Exception as exc:
         log.warning("RQ unavailable (%s) — running deploy inline", exc)
@@ -216,13 +219,7 @@ def _deploy_wordpress_async(site: Site, db: Session) -> Site:
 
 
 def _run_deploy_inline(job_record: DeployJob, site: Site, db: Session) -> None:
-    """Execute a WordPress deploy synchronously using the provided DB session."""
-    from app.services.wordpress import (
-        deploy_wordpress,
-        extract_php_ini_overrides,
-        extract_wordpress_env_overrides,
-        generate_wordpress_compose,
-    )
+    """Execute a compose-managed deploy synchronously using the provided DB session."""
     from app.services.proxy import write_vhost, reload_proxy
 
     job_record.status = JobStatus.running
@@ -230,24 +227,44 @@ def _run_deploy_inline(job_record: DeployJob, site: Site, db: Session) -> None:
 
     log_lines: list[str] = []
     try:
-        wordpress_env = extract_wordpress_env_overrides(site.env_vars)
-        php_ini_overrides = extract_php_ini_overrides(site.env_vars)
-        compose_file, _ = generate_wordpress_compose(
-            site.name,
-            site.domain,
-            wordpress_image=site.image,
-            wordpress_env=wordpress_env,
-            php_ini_overrides=php_ini_overrides,
-        )
-        log_lines.append(f"Generated compose file: {compose_file}")
+        if site.site_type == SiteType.wordpress:
+            from app.services.wordpress import (
+                deploy_wordpress,
+                extract_php_ini_overrides,
+                extract_wordpress_env_overrides,
+                generate_wordpress_compose,
+                get_wordpress_container_name,
+            )
 
-        stdout, stderr = deploy_wordpress(
-            site.name,
-            site.domain,
-            wordpress_image=site.image,
-            wordpress_env=wordpress_env,
-            php_ini_overrides=php_ini_overrides,
-        )
+            wordpress_env = extract_wordpress_env_overrides(site.env_vars)
+            php_ini_overrides = extract_php_ini_overrides(site.env_vars)
+            compose_file, _ = generate_wordpress_compose(
+                site.name,
+                site.domain,
+                wordpress_image=site.image,
+                wordpress_env=wordpress_env,
+                php_ini_overrides=php_ini_overrides,
+            )
+            stdout, stderr = deploy_wordpress(
+                site.name,
+                site.domain,
+                wordpress_image=site.image,
+                wordpress_env=wordpress_env,
+                php_ini_overrides=php_ini_overrides,
+            )
+            container_name = get_wordpress_container_name(site.name)
+        else:
+            from app.services.pl_cms import (
+                deploy_pl_cms,
+                generate_pl_cms_compose,
+                get_pl_cms_container_name,
+            )
+
+            compose_file, _ = generate_pl_cms_compose(site.name, site.domain, site.env_vars)
+            stdout, stderr = deploy_pl_cms(site.name, site.domain, site.env_vars)
+            container_name = get_pl_cms_container_name(site.name, "web")
+
+        log_lines.append(f"Generated compose file: {compose_file}")
         if stdout:
             log_lines.append(stdout)
         if stderr:
@@ -262,8 +279,7 @@ def _run_deploy_inline(job_record: DeployJob, site: Site, db: Session) -> None:
         add_dns_record(site.domain)
         log_lines.append(f"Added DNS record for {site.domain}")
 
-        from app.services.wordpress import get_wordpress_container_name
-        site.container_id = get_wordpress_container_name(site.name)
+        site.container_id = container_name
         site.status = SiteStatus.running
         db.commit()
 
@@ -288,6 +304,9 @@ def stop_site(site_name: str, db: Session = Depends(get_db)):
     if site.site_type == SiteType.wordpress:
         from app.services.wordpress import stop_wordpress
         stop_wordpress(site.name)
+    elif site.site_type == SiteType.pl_cms:
+        from app.services.pl_cms import stop_pl_cms
+        stop_pl_cms(site.name)
     else:
         from app.services.container import stop_container
         stop_container(site)
