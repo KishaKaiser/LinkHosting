@@ -95,6 +95,35 @@ def _load_secrets(secrets_file: Path) -> dict[str, str]:
     return loaded
 
 
+def _load_existing_compose_secrets(compose_file: Path) -> dict[str, str]:
+    if not compose_file.exists():
+        return {}
+    try:
+        loaded = yaml.safe_load(compose_file.read_text()) or {}
+    except yaml.YAMLError:
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+
+    services = loaded.get("services") or {}
+    if not isinstance(services, dict):
+        return {}
+
+    postgres_env = (services.get("postgres") or {}).get("environment") or {}
+    api_env = (services.get("api") or {}).get("environment") or {}
+    if not isinstance(postgres_env, dict) or not isinstance(api_env, dict):
+        return {}
+
+    extracted = {
+        "postgres_db": str(postgres_env.get("POSTGRES_DB", "")).strip(),
+        "postgres_user": str(postgres_env.get("POSTGRES_USER", "")).strip(),
+        "postgres_password": str(postgres_env.get("POSTGRES_PASSWORD", "")).strip(),
+        "jwt_access_secret": str(api_env.get("JWT_ACCESS_SECRET", "")).strip(),
+        "jwt_refresh_secret": str(api_env.get("JWT_REFRESH_SECRET", "")).strip(),
+    }
+    return {key: value for key, value in extracted.items() if value}
+
+
 def _identifier(prefix: str, site_name: str, max_length: int = 63) -> str:
     safe_site = site_name.replace("-", "_")
     value = f"{prefix}{safe_site}"
@@ -113,7 +142,10 @@ def _default_secrets(site_name: str) -> dict[str, str]:
 
 def _merged_secrets(site_name: str, secrets_file: Path, env_vars_json: str | None) -> dict[str, str]:
     defaults = _default_secrets(site_name)
-    existing = _load_secrets(secrets_file)
+    compose_file = secrets_file.parent / "docker-compose.yml"
+    existing = _load_existing_compose_secrets(compose_file)
+    if not existing:
+        existing = _load_secrets(secrets_file)
     user_env = _load_env_json(env_vars_json)
     merged = {key: existing.get(key) or defaults[key] for key in _REQUIRED_SECRET_KEYS}
 
@@ -242,7 +274,6 @@ def _build_runtime_config(
     return {
         "project": project,
         "site_dir": site_dir,
-        "secrets_file": secrets_file,
         "secrets": secrets_map,
         "api_env": api_env,
         "web_env": web_env,
@@ -362,18 +393,7 @@ def generate_pl_cms_compose(
         return compose_file, config
 
     compose_file.write_text(compose_yaml)
-    secrets_lines = "\n".join(
-        [
-            f"postgres_db={config['secrets']['postgres_db']}",
-            f"postgres_user={config['secrets']['postgres_user']}",
-            f"postgres_password={config['secrets']['postgres_password']}",
-            f"jwt_access_secret={config['secrets']['jwt_access_secret']}",
-            f"jwt_refresh_secret={config['secrets']['jwt_refresh_secret']}",
-        ]
-    )
-    config["secrets_file"].write_text(secrets_lines + "\n")
-    config["secrets_file"].chmod(0o600)
-    log.info("Wrote PL_CMS compose for site %s at %s", site_name, compose_file)
+    log.info("Wrote PL_CMS compose assets")
     return compose_file, config
 
 
@@ -511,7 +531,7 @@ def deploy_pl_cms(
         force_recreate=True,
     )
 
-    log.info("Deployed PL_CMS site %s via Docker API (project=%s)", site_name, project)
+    log.info("Deployed PL_CMS site via Docker API")
     return f"PL_CMS site {site_name} deployed via Docker API", ""
 
 

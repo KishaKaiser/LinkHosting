@@ -53,10 +53,6 @@ def test_generate_pl_cms_compose_prod_mode(tmp_path, monkeypatch):
     assert "http://plcms.link/api" in content
     assert ".linkhosting/pl_cms/web.Dockerfile" in content
 
-    secrets_file = tmp_path / "plcms" / ".secrets"
-    assert secrets_file.exists()
-    assert oct(secrets_file.stat().st_mode)[-3:] == "600"
-    assert config["secrets"]["postgres_password"] in secrets_file.read_text()
     assert config["dockerfiles"]["web"].exists()
     assert config["dockerfiles"]["api"].exists()
 

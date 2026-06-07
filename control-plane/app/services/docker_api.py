@@ -28,11 +28,11 @@ def create_or_get_network(
     client = _client()
     try:
         net = client.networks.get(name)
-        log.debug("Network %s already exists (id=%s)", name, net.id[:12])
+        log.debug("Docker network already exists (id=%s)", net.id[:12])
         return net.id
     except docker.errors.NotFound:
         net = client.networks.create(name, driver=driver, internal=internal)
-        log.info("Created network %s (id=%s)", name, net.id[:12])
+        log.info("Created Docker network (id=%s)", net.id[:12])
         return net.id
 
 
@@ -41,11 +41,11 @@ def create_volume(name: str) -> str:
     client = _client()
     try:
         vol = client.volumes.get(name)
-        log.debug("Volume %s already exists", name)
+        log.debug("Docker volume already exists")
         return vol.name
     except docker.errors.NotFound:
         vol = client.volumes.create(name)
-        log.info("Created volume %s", name)
+        log.info("Created Docker volume")
         return vol.name
 
 
@@ -84,7 +84,7 @@ def build_image(
     except docker.errors.APIError as exc:
         raise RuntimeError(f"Docker build failed for {tag}: {exc.explanation}") from exc
 
-    log.info("Built image %s (%s)", tag, image.id[:12])
+    log.info("Built Docker image (%s)", image.id[:12])
     return image.id
 
 

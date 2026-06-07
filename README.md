@@ -273,7 +273,7 @@ See [docs/ca-trust.md](docs/ca-trust.md) for other platforms (macOS, Windows, Fi
 3. The job is pushed to the `deploy` Redis queue
 4. The worker:
    - Creates `/srv/linkhosting/sites/<name>/docker-compose.yml` with `web`, `api`, `postgres`, and `redis` services
-   - Generates per-site PostgreSQL credentials plus JWT secrets and writes them to `/srv/linkhosting/sites/<name>/.secrets`
+   - Generates per-site PostgreSQL credentials plus JWT secrets and persists them in the generated compose-managed deployment config
    - Generates per-site Dockerfiles under `/srv/linkhosting/sites/<name>/.linkhosting/pl_cms/`
    - Builds the PL_CMS web/api images from the cloned pnpm monorepo and deploys the containers
    - Writes an Nginx vhost that routes `/api` and `/ws` to the API container and all other traffic to the web container
