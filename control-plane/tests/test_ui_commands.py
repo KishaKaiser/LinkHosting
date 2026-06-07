@@ -187,62 +187,73 @@ def test_run_command_no_selection(client):
     assert "No command selected" in resp.text
 
 
-# ── update from GitHub ─────────────────────────────────────────────────────────
+# ── LinkHosting app update ─────────────────────────────────────────────────────
 
-def test_update_site_unauthenticated(client):
+def test_update_linkhosting_unauthenticated(client):
     resp = client.post(
-        "/panel/sites/nodesite/update",
+        "/panel/settings/update-linkhosting",
         follow_redirects=False,
     )
     assert resp.status_code == 302
     assert "/panel/login" in resp.headers["location"]
 
 
-def test_update_site_without_git_repo(client):
+def test_update_linkhosting_not_configured(client):
     _authenticated_client(client)
-    _create_site_via_api(client, "nogitsite1", site_type="node")
 
     resp = client.post(
-        "/panel/sites/nogitsite1/update",
+        "/panel/settings/update-linkhosting",
         follow_redirects=True,
     )
     assert resp.status_code == 200
-    assert "not linked to a GitHub repository" in resp.text
+    assert "LinkHosting updates are not configured" in resp.text
 
 
-def test_update_site_success(client, tmp_path, monkeypatch):
-    import app.api.sites as sites_api
-    import app.services.github as github_service
-
+def test_update_linkhosting_success(client, tmp_path, monkeypatch):
     _authenticated_client(client)
-    monkeypatch.setattr(sites_api.settings, "sites_base_dir", str(tmp_path))
-    create_resp = client.post(
-        "/sites",
-        json={
-            "name": "gitupdatesite1",
-            "site_type": "node",
-            "github_repo": "https://github.com/owner/repo",
-            "github_branch": "develop",
-        },
-    )
-    assert create_resp.status_code == 201, create_resp.text
+    (tmp_path / ".git").mkdir()
+
+    import app.api.ui as ui_api
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_dir", str(tmp_path))
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_branch", "main")
 
     captured = {}
 
-    def fake_pull_repo(site_dir, branch=None):
-        captured["site_dir"] = site_dir
-        captured["branch"] = branch
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        captured["cwd"] = kwargs.get("cwd")
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="Already up to date.\n", stderr="")
 
-    monkeypatch.setattr(github_service, "pull_repo", fake_pull_repo)
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
     resp = client.post(
-        "/panel/sites/gitupdatesite1/update",
+        "/panel/settings/update-linkhosting",
         follow_redirects=True,
     )
     assert resp.status_code == 200
-    assert "Repository updated successfully" in resp.text
-    assert captured["site_dir"] == Path(tmp_path) / "gitupdatesite1"
-    assert captured["branch"] == "develop"
+    assert "LinkHosting updated from GitHub main" in resp.text
+    assert captured["args"] == ["git", "pull", "--ff-only", "origin", "main"]
+    assert captured["cwd"] == str(tmp_path)
+
+
+def test_update_linkhosting_failure(client, tmp_path, monkeypatch):
+    _authenticated_client(client)
+    (tmp_path / ".git").mkdir()
+
+    import app.api.ui as ui_api
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_dir", str(tmp_path))
+
+    def fake_run(args, **kwargs):
+        return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="merge required")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    resp = client.post(
+        "/panel/settings/update-linkhosting",
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "LinkHosting update failed" in resp.text
 
 
 # ── set-build-dir ─────────────────────────────────────────────────────────────

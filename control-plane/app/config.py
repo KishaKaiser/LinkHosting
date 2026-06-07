@@ -55,5 +55,9 @@ class Settings(BaseSettings):
     # Path where the token is persisted across container restarts (written by the settings UI)
     github_token_override_file: str = "/data/github_token"
 
+    # Optional local checkout for LinkHosting self-updates via the settings UI
+    linkhosting_repo_dir: str = ""
+    linkhosting_repo_branch: str = "main"
+
 
 settings = Settings()

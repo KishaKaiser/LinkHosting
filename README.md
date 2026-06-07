@@ -12,9 +12,10 @@ Provision and manage multiple isolated websites on a single server via a **web-b
 |---------|---------|
 | **Web Control Panel** | Browser UI at `/panel/` — login, dashboard, create sites, deploy, view logs |
 | **Per-site File Manager** | Browse and manage each site's host files; WordPress sites also include live `wp-content` access |
-| **Site types** | Static, PHP, Node.js, Python, Reverse Proxy, **WordPress** |
+| **Site types** | Static, PHP, Node.js, Python, Reverse Proxy, **WordPress**, **PL_CMS** |
 | **WordPress (one-click)** | Per-site docker-compose with WordPress + MariaDB, unique credentials |
-| **Background Jobs** | Redis + RQ worker for async WordPress deployments |
+| **PL_CMS (one-click)** | Per-site docker-compose with web, api, postgres, and redis services |
+| **Background Jobs** | Redis + RQ worker for async WordPress and PL_CMS deployments |
 | **Isolation** | Per-site Docker container or docker-compose project |
 | **Internal domains** | `sitename.link` (configurable suffix) |
 | **Built-in DNS** | CoreDNS serves `sitename.link` records automatically; clients point to this server |
@@ -141,6 +142,9 @@ python3 scripts/lh.py create-site mysite static
 # Or create a site by importing a GitHub repository (type auto-detected)
 python3 scripts/lh.py create-site myapp node --github https://github.com/owner/myapp
 
+# PL_CMS imports auto-detect as pl_cms and deploy as a compose stack
+python3 scripts/lh.py create-site psychiccms pl_cms --github https://github.com/KishaKaiser/PL_CMS
+
 # Deploy it (starts Docker container + writes Nginx vhost)
 python3 scripts/lh.py deploy mysite
 
@@ -241,6 +245,8 @@ See [docs/ca-trust.md](docs/ca-trust.md) for other platforms (macOS, Windows, Fi
 | `HOST_LAN_IP` | | — | Server LAN IP; A records for `sitename.link` resolve here |
 | `DNS_LISTEN_ADDR` | | `0.0.0.0` | Address CoreDNS binds port 53 on |
 | `DNS_PORT` | | `5353` | Host port CoreDNS is exposed on (use 53 if systemd-resolved is disabled) |
+| `LINKHOSTING_REPO_DIR` | | — | Local LinkHosting Git checkout path used by the panel's self-update action |
+| `LINKHOSTING_REPO_BRANCH` | | `main` | Branch used by the panel's LinkHosting self-update action |
 
 ---
 
@@ -260,6 +266,19 @@ See [docs/ca-trust.md](docs/ca-trust.md) for other platforms (macOS, Windows, Fi
 
 > After upgrading to a version with host-managed WordPress PHP ini files, recreate the main stack so the `panel`, `worker`, and `sftp-server` services pick up the host bind mount for `SITES_BASE_DIR_HOST` (for example: `docker compose up -d --build --force-recreate panel worker sftp-server`).
 
+## PL_CMS Deployment Flow
+
+1. User creates or imports a site of type `pl_cms` via the panel or API
+2. User clicks **Deploy** → a `DeployJob` row is created (status: `queued`)
+3. The job is pushed to the `deploy` Redis queue
+4. The worker:
+   - Creates `/srv/linkhosting/sites/<name>/docker-compose.yml` with `web`, `api`, `postgres`, and `redis` services
+   - Generates per-site PostgreSQL credentials plus JWT secrets and persists them in the generated compose-managed deployment config
+   - Generates per-site Dockerfiles under `/srv/linkhosting/sites/<name>/.linkhosting/pl_cms/`
+   - Builds the PL_CMS web/api images from the cloned pnpm monorepo and deploys the containers
+   - Writes an Nginx vhost that routes `/api` and `/ws` to the API container and all other traffic to the web container
+5. Job status is updated to `succeeded` or `failed` with captured logs
+
 ---
 
 ## Development Mode
@@ -276,7 +295,7 @@ uvicorn app.main:app --reload --port 8000
 # Browse API docs at http://localhost:8000/docs
 ```
 
-In dev mode, WordPress deployments run inline (no real `docker compose` calls) so you can test the full flow without a live Docker environment.
+In dev mode, WordPress and PL_CMS deployments run inline (no real Docker builds/starts) so you can test the full flow without a live Docker environment.
 
 ---
 
@@ -291,7 +310,7 @@ Full interactive API docs available at `http://localhost:8000/docs` when running
 | `/sites/{name}` | GET | Get site details |
 | `/sites/{name}` | PATCH | Update site |
 | `/sites/{name}` | DELETE | Delete site + container |
-| `/sites/{name}/deploy` | POST | Deploy site (async job for WordPress) |
+| `/sites/{name}/deploy` | POST | Deploy site (async job for WordPress / PL_CMS) |
 | `/sites/{name}/stop` | POST | Stop site |
 | `/sites/{name}/jobs` | GET | List deploy jobs for a site |
 | `/sites/{name}/import-github` | POST | Clone/re-clone a GitHub repo |
@@ -336,6 +355,7 @@ python -m pytest tests/ -v
 - **Background Jobs**: Redis + RQ
 - **Control-plane DB**: PostgreSQL 16
 - **WordPress**: docker-compose per site (WordPress + MariaDB)
+- **PL_CMS**: docker-compose per site (web + api + PostgreSQL + Redis)
 - **Proxy**: Nginx 1.27 (auto-configured per site)
 - **SFTP**: OpenSSH
 - **TLS**: Python `cryptography` library (internal CA)

@@ -23,8 +23,23 @@ _DETECTION_CHECKS = [
 ]
 
 
+def _looks_like_pl_cms(repo_dir: Path) -> bool:
+    """Return True when *repo_dir* matches the expected PL_CMS monorepo layout."""
+    required_paths = (
+        "pnpm-workspace.yaml",
+        "pnpm-lock.yaml",
+        "apps/web/package.json",
+        "apps/api/package.json",
+        "packages/db/package.json",
+    )
+    return all((repo_dir / rel_path).exists() for rel_path in required_paths)
+
+
 def detect_site_type(repo_dir: Path) -> SiteType:
     """Inspect the cloned repo directory and return the most likely SiteType."""
+    if _looks_like_pl_cms(repo_dir):
+        return SiteType.pl_cms
+
     for filename, site_type in _DETECTION_CHECKS:
         if (repo_dir / filename).exists():
             return site_type

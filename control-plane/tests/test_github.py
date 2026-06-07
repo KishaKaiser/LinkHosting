@@ -47,6 +47,21 @@ class TestValidateGitHubUrl:
 
 
 class TestDetectSiteType:
+    def test_detects_pl_cms(self, tmp_path):
+        from app.services.github import detect_site_type
+        from app.models import SiteType
+
+        (tmp_path / "pnpm-workspace.yaml").write_text("packages:\n  - 'apps/*'\n")
+        (tmp_path / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n")
+        (tmp_path / "apps" / "web").mkdir(parents=True)
+        (tmp_path / "apps" / "api").mkdir(parents=True)
+        (tmp_path / "packages" / "db").mkdir(parents=True)
+        (tmp_path / "apps" / "web" / "package.json").write_text("{}")
+        (tmp_path / "apps" / "api" / "package.json").write_text("{}")
+        (tmp_path / "packages" / "db" / "package.json").write_text("{}")
+
+        assert detect_site_type(tmp_path) == SiteType.pl_cms
+
     def test_detects_node(self, tmp_path):
         from app.services.github import detect_site_type
         from app.models import SiteType
@@ -156,6 +171,30 @@ def test_create_site_with_github_repo(client, tmp_path, monkeypatch):
     assert data["site_type"] == "node"
     assert data["git_repo"] == "https://github.com/owner/myapp.git"
     assert data["git_branch"] is None
+
+
+def test_create_site_with_github_repo_detects_pl_cms(client, tmp_path, monkeypatch):
+    """Creating a site with the PL_CMS layout should auto-detect pl_cms."""
+    import app.config as cfg
+
+    monkeypatch.setattr(cfg.settings, "sites_base_dir", str(tmp_path))
+    site_dir = tmp_path / "plcms"
+    site_dir.mkdir()
+    (site_dir / "pnpm-workspace.yaml").write_text("packages:\n  - 'apps/*'\n")
+    (site_dir / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n")
+    (site_dir / "apps" / "web").mkdir(parents=True)
+    (site_dir / "apps" / "api").mkdir(parents=True)
+    (site_dir / "packages" / "db").mkdir(parents=True)
+    (site_dir / "apps" / "web" / "package.json").write_text("{}")
+    (site_dir / "apps" / "api" / "package.json").write_text("{}")
+    (site_dir / "packages" / "db" / "package.json").write_text("{}")
+
+    resp = client.post("/sites", json={
+        "name": "plcms",
+        "github_repo": "https://github.com/KishaKaiser/PL_CMS",
+    })
+    assert resp.status_code == 201
+    assert resp.json()["site_type"] == "pl_cms"
 
 
 def test_create_site_with_github_repo_explicit_type(client, tmp_path, monkeypatch):

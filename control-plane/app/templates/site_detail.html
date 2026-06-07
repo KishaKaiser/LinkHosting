@@ -39,11 +39,6 @@
         <form method="post" action="/panel/sites/{{ site.name }}/deploy">
             <button type="submit" class="btn btn-primary">🚀 Deploy</button>
         </form>
-        {% if site.git_repo %}
-        <form method="post" action="/panel/sites/{{ site.name }}/update">
-            <button type="submit" class="btn btn-secondary">🔄 Update</button>
-        </form>
-        {% endif %}
         <form method="post" action="/panel/sites/{{ site.name }}/stop">
             <button type="submit" class="btn btn-secondary">⏹ Stop</button>
         </form>
@@ -58,13 +53,8 @@
     </div>
     {% if site.site_type.value == 'wordpress' %}
     <p class="text-muted mt-1">WordPress sites are deployed via docker-compose. Deploy runs in the background — check the Jobs section below.</p>
-    {% endif %}
-    {% if site.git_repo %}
-    <p class="text-muted mt-1">
-        <strong>Update:</strong> Pulls the latest commits from
-        <code>{{ site.git_branch or 'default branch' }}</code> of the configured GitHub repository
-        without re-importing or reinstalling the site.
-    </p>
+    {% elif site.site_type.value == 'pl_cms' %}
+    <p class="text-muted mt-1">PL_CMS sites are deployed via a generated docker-compose stack (web, api, postgres, redis). Deploy runs in the background — check the Jobs section below.</p>
     {% endif %}
     <p class="text-muted mt-1">
         <strong>SSL:</strong> Issues a certificate from the internal CA for <code>{{ site.domain }}</code>.

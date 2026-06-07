@@ -151,7 +151,7 @@ A site can be populated with code from any **public** GitHub repository.
 **At creation time** (type is auto-detected from repo contents):
 
 ```bash
-# site_type is inferred: package.json→node, requirements.txt→python, *.php→php, else→static
+# site_type is inferred: PL_CMS monorepo layout→pl_cms, package.json→node, requirements.txt→python, *.php→php, else→static
 curl -s -X POST http://localhost:8000/sites \
   -H "Content-Type: application/json" \
   -d '{"name":"myapp","github_repo":"https://github.com/owner/myapp"}' | python3 -m json.tool
@@ -167,7 +167,8 @@ curl -s -X POST http://localhost:8000/sites/myapp/import-github \
 
 Both calls clone the repo into `/data/sites/<name>/` and record `git_repo` + `git_branch` on the site.
 
-If a site is already linked to GitHub, use the **Update** button on the site detail page in `/panel/` to pull the latest commits without re-importing/reinstalling the site.
+To update the LinkHosting app itself from GitHub without reinstalling, configure
+`LINKHOSTING_REPO_DIR` and use **Settings → Update LinkHosting** in `/panel/`.
 
 ### Deploy a site (provision container + vhost)
 

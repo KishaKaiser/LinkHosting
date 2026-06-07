@@ -64,7 +64,7 @@ It provisions isolated Docker containers per site, routes traffic via Nginx, man
 
 ### Site Containers
 - One Docker container per site
-- Supported types: `static`, `php`, `node`, `python`, `proxy`, `wordpress`
+- Supported types: `static`, `php`, `node`, `python`, `proxy`, `wordpress`, `pl_cms`
 - Non-WordPress containers join the `linkhosting_sites` Docker network; the proxy
   reaches them via the conventional hostname `site-<name>`
 - WordPress sites are deployed as a **per-site Docker Compose project** with a
@@ -75,6 +75,11 @@ It provisions isolated Docker containers per site, routes traffic via Nginx, man
   - Full Docker container name: `lh_wp_<safe_name>-wp_<safe_name>-1`
   - The container is attached to the `linkhosting_proxy` network so Nginx can
     reach it; the generated vhost uses this full name as the `proxy_pass` target
+- PL_CMS sites are deployed as a **per-site Docker Compose project** with
+  `web`, `api`, `postgres`, and `redis` services.  The proxy targets the full
+  Docker container names `lh_plcms_<safe_name>-web-1` and
+  `lh_plcms_<safe_name>-api-1` so `/`, `/api`, and `/ws` route reliably over
+  Docker networking.
 
 ### Databases
 - Shared PostgreSQL instance (`db-pg`) for site databases
