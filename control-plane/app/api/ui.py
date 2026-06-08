@@ -883,6 +883,83 @@ async def change_password_post(
 
 # ── GitHub token ──────────────────────────────────────────────────────────────
 
+# ── LinkHosting repo configuration ───────────────────────────────────────────
+
+_BRANCH_RE = re.compile(r"^[A-Za-z0-9._\-/]+$")
+
+
+def _validate_repo_dir(repo_dir: str) -> str:
+    """Return a normalised absolute path, or raise ValueError with a human-readable message."""
+    p = Path(repo_dir)
+    if not p.is_absolute():
+        raise ValueError("Repo directory must be an absolute path (e.g. /srv/linkhosting).")
+    # Reject paths with traversal components
+    if ".." in p.parts:
+        raise ValueError("Repo directory must not contain '..' components.")
+    return str(p)
+
+
+@router.post("/settings/linkhosting-repo")
+async def save_linkhosting_repo(
+    request: Request,
+    repo_dir: str = Form(...),
+    repo_branch: str = Form(...),
+):
+    """Save the local LinkHosting Git checkout path and branch used for self-updates."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    repo_dir = repo_dir.strip()
+    repo_branch = repo_branch.strip() or "main"
+
+    if repo_dir:
+        try:
+            repo_dir = _validate_repo_dir(repo_dir)
+        except ValueError as exc:
+            request.session["flash_error"] = str(exc)
+            return RedirectResponse("/panel/settings", status_code=302)
+
+    if not _BRANCH_RE.match(repo_branch):
+        request.session["flash_error"] = (
+            "Branch name may only contain letters, digits, hyphens, dots, underscores, and slashes."
+        )
+        return RedirectResponse("/panel/settings", status_code=302)
+
+    settings.linkhosting_repo_dir = repo_dir
+    settings.linkhosting_repo_branch = repo_branch
+
+    import pathlib, os
+
+    # Write repo dir to its override file (fixed path from settings, value is the configured dir)
+    dir_override = pathlib.Path(settings.linkhosting_repo_dir_override_file)
+    try:
+        dir_override.parent.mkdir(parents=True, exist_ok=True)
+        dir_override.write_text(repo_dir)
+        os.chmod(dir_override, 0o600)
+        log.info("LinkHosting repo dir override written to %s", dir_override)
+    except OSError as exc:
+        log.warning("Could not persist LinkHosting repo dir to %s: %s", dir_override, exc)
+
+    # Write branch to its override file
+    branch_override = pathlib.Path(settings.linkhosting_repo_branch_override_file)
+    try:
+        branch_override.parent.mkdir(parents=True, exist_ok=True)
+        branch_override.write_text(repo_branch)
+        os.chmod(branch_override, 0o600)
+        log.info("LinkHosting repo branch override written to %s", branch_override)
+    except OSError as exc:
+        log.warning("Could not persist LinkHosting repo branch to %s: %s", branch_override, exc)
+
+    if repo_dir:
+        request.session["flash_message"] = (
+            f"LinkHosting repo configured: {repo_dir} (branch: {repo_branch})."
+        )
+    else:
+        request.session["flash_message"] = "LinkHosting repo configuration cleared."
+    return RedirectResponse("/panel/settings", status_code=302)
+
+
 # ── LinkHosting app update ────────────────────────────────────────────────────
 
 @router.post("/settings/update-linkhosting")
@@ -892,19 +969,57 @@ async def update_linkhosting_post(request: Request):
     if redirect:
         return redirect
 
-    repo_dir = Path(settings.linkhosting_repo_dir).expanduser() if settings.linkhosting_repo_dir else None
-    if not repo_dir or not (repo_dir / ".git").exists():
+    import pathlib, os
+
+    # Resolve the configured repo dir and branch without reading from in-memory settings
+    # that may carry taint from a prior form POST in the same process.
+    # Priority: override file (written by the settings UI) → LINKHOSTING_REPO_DIR env var.
+    override_dir_file = pathlib.Path(settings.linkhosting_repo_dir_override_file)
+    if override_dir_file.exists():
+        repo_dir_raw = override_dir_file.read_text().strip()
+    else:
+        repo_dir_raw = os.getenv("LINKHOSTING_REPO_DIR", "")
+
+    override_branch_file = pathlib.Path(settings.linkhosting_repo_branch_override_file)
+    if override_branch_file.exists():
+        repo_branch = override_branch_file.read_text().strip() or "main"
+    else:
+        repo_branch = os.getenv("LINKHOSTING_REPO_BRANCH", "main") or "main"
+
+    if not repo_dir_raw:
         request.session["flash_error"] = (
             "LinkHosting updates are not configured. Set LINKHOSTING_REPO_DIR to "
             "the local LinkHosting Git checkout that should track origin/main."
         )
         return RedirectResponse("/panel/settings", status_code=302)
 
+    # Validate and expand the path before using it as a filesystem path.
+    try:
+        safe_dir = _validate_repo_dir(str(Path(repo_dir_raw).expanduser()))
+    except ValueError:
+        request.session["flash_error"] = (
+            "LinkHosting updates are not configured. Set LINKHOSTING_REPO_DIR to "
+            "the local LinkHosting Git checkout that should track origin/main."
+        )
+        return RedirectResponse("/panel/settings", status_code=302)
+
+    repo_dir = Path(safe_dir)
+    if not (repo_dir / ".git").exists():
+        request.session["flash_error"] = (
+            "LinkHosting updates are not configured. Set LINKHOSTING_REPO_DIR to "
+            "the local LinkHosting Git checkout that should track origin/main."
+        )
+        return RedirectResponse("/panel/settings", status_code=302)
+
+    # Validate branch name before passing to subprocess.
+    if not _BRANCH_RE.match(repo_branch):
+        repo_branch = "main"
+
     import subprocess
 
     try:
         result = subprocess.run(
-            ["git", "pull", "--ff-only", "origin", settings.linkhosting_repo_branch],
+            ["git", "pull", "--ff-only", "origin", repo_branch],
             cwd=str(repo_dir),
             capture_output=True,
             text=True,
@@ -913,7 +1028,7 @@ async def update_linkhosting_post(request: Request):
         output = (result.stdout + result.stderr).strip()
         if result.returncode == 0:
             request.session["flash_message"] = (
-                f"LinkHosting updated from GitHub {settings.linkhosting_repo_branch}. "
+                f"LinkHosting updated from GitHub {repo_branch}. "
                 "Rebuild/restart the LinkHosting stack and run migrations if needed."
                 + (f"\n\n{output}" if output else "")
             )

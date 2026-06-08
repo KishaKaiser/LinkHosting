@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     # Optional local checkout for LinkHosting self-updates via the settings UI
     linkhosting_repo_dir: str = ""
     linkhosting_repo_branch: str = "main"
+    # Override files so repo dir/branch survive container restarts (written by settings UI)
+    linkhosting_repo_dir_override_file: str = "/data/linkhosting_repo_dir"
+    linkhosting_repo_branch_override_file: str = "/data/linkhosting_repo_branch"
 
 
 settings = Settings()
