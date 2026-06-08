@@ -213,14 +213,11 @@ else
   PREREQ_OK=false
 fi
 
-# docker compose (v2 plugin preferred; fall back to standalone)
+# docker compose v2 plugin (required)
 # DOCKER_COMPOSE is an array so it can be safely expanded as "${DOCKER_COMPOSE[@]}"
 if docker compose version &>/dev/null 2>&1; then
   ok "docker compose (plugin v2)"
   DOCKER_COMPOSE=(docker compose)
-elif command -v docker-compose &>/dev/null; then
-  ok "docker-compose (standalone)"
-  DOCKER_COMPOSE=(docker-compose)
 else
   # Attempt to install the compose plugin on Linux
   if [[ "$PLATFORM" == "linux" ]]; then
@@ -237,7 +234,7 @@ else
     ok "docker compose (plugin v2)"
     DOCKER_COMPOSE=(docker compose)
   else
-    echo -e "${RED}[MISS]${RESET}  docker compose not found." \
+    echo -e "${RED}[MISS]${RESET}  docker compose v2 plugin not found." \
       " Install the Compose plugin: https://docs.docker.com/compose/install/" >&2
     PREREQ_OK=false
     DOCKER_COMPOSE=(docker compose)   # placeholder so -u doesn't error later
