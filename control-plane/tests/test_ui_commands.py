@@ -338,6 +338,53 @@ def test_save_linkhosting_repo_invalid_branch_rejected(client):
     assert "branch name" in resp.text.lower()
 
 
+# ── settings page linkhosting config resolution ───────────────────────────────
+
+def test_settings_page_shows_override_file_values(client, tmp_path, monkeypatch):
+    """Settings page should display values from override files when they exist."""
+    _authenticated_client(client)
+
+    import app.api.ui as ui_api
+
+    override_dir = tmp_path / "repo_dir_override"
+    override_dir.write_text("/srv/linkhosting")
+    override_branch = tmp_path / "repo_branch_override"
+    override_branch.write_text("stable")
+
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_dir_override_file", str(override_dir))
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_branch_override_file", str(override_branch))
+    # Clear in-memory values to confirm override files take precedence over them
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_dir", "")
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_branch", "")
+
+    resp = client.get("/panel/settings", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "/srv/linkhosting" in resp.text
+    assert "stable" in resp.text
+
+
+def test_settings_page_falls_back_to_env_vars(client, tmp_path, monkeypatch):
+    """Settings page should fall back to env vars when override files are absent."""
+    _authenticated_client(client)
+
+    import app.api.ui as ui_api
+
+    # Override files do not exist
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_dir_override_file", str(tmp_path / "nonexistent_dir"))
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_branch_override_file", str(tmp_path / "nonexistent_branch"))
+    # Clear in-memory values
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_dir", "")
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_branch", "")
+
+    monkeypatch.setenv("LINKHOSTING_REPO_DIR", "/opt/linkhosting")
+    monkeypatch.setenv("LINKHOSTING_REPO_BRANCH", "develop")
+
+    resp = client.get("/panel/settings", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "/opt/linkhosting" in resp.text
+    assert "develop" in resp.text
+
+
 # ── set-build-dir ─────────────────────────────────────────────────────────────
 
 def test_set_build_dir_unauthenticated(client):
