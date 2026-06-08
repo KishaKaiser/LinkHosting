@@ -977,8 +977,18 @@ async def update_linkhosting_post(request: Request):
         )
         return RedirectResponse("/panel/settings", status_code=302)
 
-    repo_dir = Path(repo_dir_str).expanduser()
-    if not repo_dir.is_absolute() or not (repo_dir / ".git").exists():
+    # Expand ~ shorthand (useful for env-var configured paths), then validate strictly.
+    try:
+        safe_dir = _validate_repo_dir(str(Path(repo_dir_str).expanduser()))
+    except ValueError:
+        request.session["flash_error"] = (
+            "LinkHosting updates are not configured. Set LINKHOSTING_REPO_DIR to "
+            "the local LinkHosting Git checkout that should track origin/main."
+        )
+        return RedirectResponse("/panel/settings", status_code=302)
+
+    repo_dir = Path(safe_dir)
+    if not (repo_dir / ".git").exists():
         request.session["flash_error"] = (
             "LinkHosting updates are not configured. Set LINKHOSTING_REPO_DIR to "
             "the local LinkHosting Git checkout that should track origin/main."
