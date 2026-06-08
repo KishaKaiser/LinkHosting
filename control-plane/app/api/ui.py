@@ -813,6 +813,7 @@ async def settings_page(request: Request):
 
     message = request.session.pop("flash_message", None)
     error = request.session.pop("flash_error", None)
+    repo_dir, repo_branch = _resolve_linkhosting_config()
     return templates.TemplateResponse(
         request,
         "settings.html",
@@ -820,8 +821,8 @@ async def settings_page(request: Request):
             "message": message,
             "error": error,
             "github_token_configured": bool(settings.github_token),
-            "linkhosting_repo_dir": settings.linkhosting_repo_dir,
-            "linkhosting_repo_branch": settings.linkhosting_repo_branch,
+            "linkhosting_repo_dir": repo_dir,
+            "linkhosting_repo_branch": repo_branch,
         },
     )
 
@@ -838,6 +839,7 @@ async def change_password_post(
         return redirect
 
     def _render_error(msg: str):
+        _repo_dir, _repo_branch = _resolve_linkhosting_config()
         return templates.TemplateResponse(
             request,
             "settings.html",
@@ -845,8 +847,8 @@ async def change_password_post(
                 "message": None,
                 "error": msg,
                 "github_token_configured": bool(settings.github_token),
-                "linkhosting_repo_dir": settings.linkhosting_repo_dir,
-                "linkhosting_repo_branch": settings.linkhosting_repo_branch,
+                "linkhosting_repo_dir": _repo_dir,
+                "linkhosting_repo_branch": _repo_branch,
             },
             status_code=422,
         )
@@ -897,6 +899,31 @@ def _validate_repo_dir(repo_dir: str) -> str:
     if ".." in p.parts:
         raise ValueError("Repo directory must not contain '..' components.")
     return str(p)
+
+
+def _resolve_linkhosting_config() -> tuple[str, str]:
+    """Return the effective (repo_dir, repo_branch) for the LinkHosting self-update feature.
+
+    Precedence (highest first):
+    1. Override files written by the settings UI
+    2. Environment variables (LINKHOSTING_REPO_DIR, LINKHOSTING_REPO_BRANCH)
+    3. Fallback defaults ("", "main")
+    """
+    import pathlib, os
+
+    override_dir_file = pathlib.Path(settings.linkhosting_repo_dir_override_file)
+    if override_dir_file.exists():
+        repo_dir = override_dir_file.read_text().strip()
+    else:
+        repo_dir = os.getenv("LINKHOSTING_REPO_DIR", "")
+
+    override_branch_file = pathlib.Path(settings.linkhosting_repo_branch_override_file)
+    if override_branch_file.exists():
+        repo_branch = override_branch_file.read_text().strip() or "main"
+    else:
+        repo_branch = os.getenv("LINKHOSTING_REPO_BRANCH", "main") or "main"
+
+    return repo_dir, repo_branch
 
 
 @router.post("/settings/linkhosting-repo")
@@ -974,17 +1001,7 @@ async def update_linkhosting_post(request: Request):
     # Resolve the configured repo dir and branch without reading from in-memory settings
     # that may carry taint from a prior form POST in the same process.
     # Priority: override file (written by the settings UI) → LINKHOSTING_REPO_DIR env var.
-    override_dir_file = pathlib.Path(settings.linkhosting_repo_dir_override_file)
-    if override_dir_file.exists():
-        repo_dir_raw = override_dir_file.read_text().strip()
-    else:
-        repo_dir_raw = os.getenv("LINKHOSTING_REPO_DIR", "")
-
-    override_branch_file = pathlib.Path(settings.linkhosting_repo_branch_override_file)
-    if override_branch_file.exists():
-        repo_branch = override_branch_file.read_text().strip() or "main"
-    else:
-        repo_branch = os.getenv("LINKHOSTING_REPO_BRANCH", "main") or "main"
+    repo_dir_raw, repo_branch = _resolve_linkhosting_config()
 
     if not repo_dir_raw:
         request.session["flash_error"] = (
