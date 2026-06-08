@@ -969,28 +969,33 @@ async def update_linkhosting_post(request: Request):
     if redirect:
         return redirect
 
-    repo_dir_str = settings.linkhosting_repo_dir
-    if not repo_dir_str:
+    import pathlib, os
+
+    # Resolve the configured repo dir and branch without reading from in-memory settings
+    # that may carry taint from a prior form POST in the same process.
+    # Priority: override file (written by the settings UI) → LINKHOSTING_REPO_DIR env var.
+    override_dir_file = pathlib.Path(settings.linkhosting_repo_dir_override_file)
+    if override_dir_file.exists():
+        repo_dir_raw = override_dir_file.read_text().strip()
+    else:
+        repo_dir_raw = os.getenv("LINKHOSTING_REPO_DIR", "")
+
+    override_branch_file = pathlib.Path(settings.linkhosting_repo_branch_override_file)
+    if override_branch_file.exists():
+        repo_branch = override_branch_file.read_text().strip() or "main"
+    else:
+        repo_branch = os.getenv("LINKHOSTING_REPO_BRANCH", "main") or "main"
+
+    if not repo_dir_raw:
         request.session["flash_error"] = (
             "LinkHosting updates are not configured. Set LINKHOSTING_REPO_DIR to "
             "the local LinkHosting Git checkout that should track origin/main."
         )
         return RedirectResponse("/panel/settings", status_code=302)
 
-    # Validate the stored path before using it as a filesystem path.
-    # Using m.group(0) from a successful fullmatch is a CodeQL-recognised sanitizer for
-    # py/path-injection: the returned string can only contain characters allowed by the regex.
-    _m = re.fullmatch(r"[/~][\w./\- ]+", repo_dir_str)
-    if not _m:
-        request.session["flash_error"] = (
-            "LinkHosting repo path contains invalid characters. "
-            "Reconfigure it from the Settings page."
-        )
-        return RedirectResponse("/panel/settings", status_code=302)
-
-    # Expand ~ shorthand (useful for env-var configured paths), then validate strictly.
+    # Validate and expand the path before using it as a filesystem path.
     try:
-        safe_dir = _validate_repo_dir(str(Path(_m.group(0)).expanduser()))
+        safe_dir = _validate_repo_dir(str(Path(repo_dir_raw).expanduser()))
     except ValueError:
         request.session["flash_error"] = (
             "LinkHosting updates are not configured. Set LINKHOSTING_REPO_DIR to "
@@ -1006,11 +1011,15 @@ async def update_linkhosting_post(request: Request):
         )
         return RedirectResponse("/panel/settings", status_code=302)
 
+    # Validate branch name before passing to subprocess.
+    if not _BRANCH_RE.match(repo_branch):
+        repo_branch = "main"
+
     import subprocess
 
     try:
         result = subprocess.run(
-            ["git", "pull", "--ff-only", "origin", settings.linkhosting_repo_branch],
+            ["git", "pull", "--ff-only", "origin", repo_branch],
             cwd=str(repo_dir),
             capture_output=True,
             text=True,
@@ -1019,7 +1028,7 @@ async def update_linkhosting_post(request: Request):
         output = (result.stdout + result.stderr).strip()
         if result.returncode == 0:
             request.session["flash_message"] = (
-                f"LinkHosting updated from GitHub {settings.linkhosting_repo_branch}. "
+                f"LinkHosting updated from GitHub {repo_branch}. "
                 "Rebuild/restart the LinkHosting stack and run migrations if needed."
                 + (f"\n\n{output}" if output else "")
             )

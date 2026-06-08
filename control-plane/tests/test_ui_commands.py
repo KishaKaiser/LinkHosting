@@ -213,9 +213,14 @@ def test_update_linkhosting_success(client, tmp_path, monkeypatch):
     _authenticated_client(client)
     (tmp_path / ".git").mkdir()
 
+    # Configure via override files (the path the updated handler reads from)
     import app.api.ui as ui_api
-    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_dir", str(tmp_path))
-    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_branch", "main")
+    override_dir = tmp_path / "repo_dir_override"
+    override_dir.write_text(str(tmp_path))
+    override_branch = tmp_path / "repo_branch_override"
+    override_branch.write_text("main")
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_dir_override_file", str(override_dir))
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_branch_override_file", str(override_branch))
 
     captured = {}
 
@@ -241,7 +246,10 @@ def test_update_linkhosting_failure(client, tmp_path, monkeypatch):
     (tmp_path / ".git").mkdir()
 
     import app.api.ui as ui_api
-    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_dir", str(tmp_path))
+    override_dir = tmp_path / "repo_dir_override"
+    override_dir.write_text(str(tmp_path))
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_dir_override_file", str(override_dir))
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_branch_override_file", str(tmp_path / "nonexistent"))
 
     def fake_run(args, **kwargs):
         return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="merge required")
