@@ -977,6 +977,16 @@ async def update_linkhosting_post(request: Request):
         )
         return RedirectResponse("/panel/settings", status_code=302)
 
+    # Validate the stored path before using it as a filesystem path.
+    # re.fullmatch acts as a sanitizer for CodeQL py/path-injection taint analysis,
+    # and also prevents obviously unsafe values coming from env-var overrides.
+    if not re.fullmatch(r"[/~][\w./\- ]+", repo_dir_str):
+        request.session["flash_error"] = (
+            "LinkHosting repo path contains invalid characters. "
+            "Reconfigure it from the Settings page."
+        )
+        return RedirectResponse("/panel/settings", status_code=302)
+
     # Expand ~ shorthand (useful for env-var configured paths), then validate strictly.
     try:
         safe_dir = _validate_repo_dir(str(Path(repo_dir_str).expanduser()))
