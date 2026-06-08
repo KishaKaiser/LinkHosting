@@ -256,6 +256,80 @@ def test_update_linkhosting_failure(client, tmp_path, monkeypatch):
     assert "LinkHosting update failed" in resp.text
 
 
+# ── save-linkhosting-repo ─────────────────────────────────────────────────────
+
+def test_save_linkhosting_repo_unauthenticated(client):
+    resp = client.post(
+        "/panel/settings/linkhosting-repo",
+        data={"repo_dir": "/srv/linkhosting", "repo_branch": "main"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "/panel/login" in resp.headers["location"]
+
+
+def test_save_linkhosting_repo_valid(client, tmp_path, monkeypatch):
+    """Valid absolute path and branch should be accepted and reflected on settings page."""
+    _authenticated_client(client)
+
+    import app.api.ui as ui_api
+    # Redirect override file writes to tmp_path so the test doesn't touch /data
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_dir_override_file", str(tmp_path / "repo_dir"))
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_branch_override_file", str(tmp_path / "repo_branch"))
+
+    resp = client.post(
+        "/panel/settings/linkhosting-repo",
+        data={"repo_dir": "/srv/linkhosting", "repo_branch": "release/1.0"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "LinkHosting repo configured" in resp.text
+    assert "/srv/linkhosting" in resp.text
+
+
+def test_save_linkhosting_repo_clear(client, tmp_path, monkeypatch):
+    """Empty repo_dir should clear the configuration."""
+    _authenticated_client(client)
+
+    import app.api.ui as ui_api
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_dir_override_file", str(tmp_path / "repo_dir"))
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_branch_override_file", str(tmp_path / "repo_branch"))
+
+    resp = client.post(
+        "/panel/settings/linkhosting-repo",
+        data={"repo_dir": "", "repo_branch": "main"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "cleared" in resp.text.lower()
+
+
+def test_save_linkhosting_repo_relative_path_rejected(client):
+    """A relative path should be rejected with an error."""
+    _authenticated_client(client)
+
+    resp = client.post(
+        "/panel/settings/linkhosting-repo",
+        data={"repo_dir": "srv/linkhosting", "repo_branch": "main"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "absolute path" in resp.text.lower()
+
+
+def test_save_linkhosting_repo_invalid_branch_rejected(client):
+    """A branch name with shell-unsafe characters should be rejected."""
+    _authenticated_client(client)
+
+    resp = client.post(
+        "/panel/settings/linkhosting-repo",
+        data={"repo_dir": "/srv/linkhosting", "repo_branch": "main; rm -rf /"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "branch name" in resp.text.lower()
+
+
 # ── set-build-dir ─────────────────────────────────────────────────────────────
 
 def test_set_build_dir_unauthenticated(client):

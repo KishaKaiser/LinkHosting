@@ -13,22 +13,45 @@
 <div class="card" style="max-width: 480px;">
     <h2>Update LinkHosting</h2>
     <p class="text-muted" style="margin-bottom: 1rem;">
-        Pull the latest LinkHosting code from the configured Git checkout on the
-        <code>{{ linkhosting_repo_branch }}</code> branch. This updates the
+        Pull the latest LinkHosting code from a local Git checkout. This updates the
         LinkHosting app itself, not individual site repositories.
     </p>
+
+    <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">Configure Checkout</h3>
+    <form method="post" action="/panel/settings/linkhosting-repo" style="margin-bottom: 1.25rem;">
+        <div class="form-group">
+            <label for="repo_dir">Local Checkout Path</label>
+            <input type="text" id="repo_dir" name="repo_dir"
+                   value="{{ linkhosting_repo_dir }}"
+                   placeholder="/srv/linkhosting"
+                   autocomplete="off" />
+            <p class="text-muted mt-1">Absolute path to the LinkHosting Git checkout on the host. Leave blank to disable panel updates.</p>
+        </div>
+        <div class="form-group">
+            <label for="repo_branch">Branch</label>
+            <input type="text" id="repo_branch" name="repo_branch"
+                   value="{{ linkhosting_repo_branch }}"
+                   placeholder="main"
+                   autocomplete="off" />
+        </div>
+        <div class="flex mt-1">
+            <button type="submit" class="btn btn-secondary">Save Configuration</button>
+        </div>
+    </form>
+
     {% if linkhosting_repo_dir %}
     <p class="text-muted" style="margin-bottom: 0.75rem;">
         Configured checkout: <code>{{ linkhosting_repo_dir }}</code>
+        (branch: <code>{{ linkhosting_repo_branch }}</code>)
     </p>
-    {% else %}
-    <p class="text-muted" style="margin-bottom: 0.75rem;">
-        Set <code>LINKHOSTING_REPO_DIR</code> to enable app updates from the panel.
-    </p>
-    {% endif %}
     <form method="post" action="/panel/settings/update-linkhosting">
         <button type="submit" class="btn btn-primary">⬇ Update LinkHosting</button>
     </form>
+    {% else %}
+    <p class="text-muted" style="margin-bottom: 0.75rem;">
+        No checkout configured — save a path above to enable panel updates.
+    </p>
+    {% endif %}
 </div>
 
 <div class="card" style="max-width: 480px;">

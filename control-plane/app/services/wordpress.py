@@ -280,7 +280,7 @@ def generate_wordpress_compose(
         "name": project,
         "services": {
             wp_service: {
-                "image": wordpress_image or "wordpress:latest",
+                "image": wordpress_image or "wordpress:6.8",
                 "restart": "unless-stopped",
                 "environment": _wordpress_environment(
                     "db",
@@ -302,7 +302,7 @@ def generate_wordpress_compose(
                 },
             },
             "db": {
-                "image": "mariadb:10.11",
+                "image": "mariadb:11.4",
                 "restart": "unless-stopped",
                 "environment": {
                     "MARIADB_ROOT_PASSWORD": db_root_password,

@@ -43,6 +43,20 @@ async def lifespan(app: FastAPI):
             settings.github_token = token
             log.info("Loaded GitHub token override from %s", token_file)
 
+    # Load persisted LinkHosting repo dir/branch (written by the settings UI)
+    repo_dir_file = pathlib.Path(settings.linkhosting_repo_dir_override_file)
+    if repo_dir_file.exists():
+        repo_dir = repo_dir_file.read_text().strip()
+        if repo_dir:
+            settings.linkhosting_repo_dir = repo_dir
+            log.info("Loaded LinkHosting repo dir override from %s", repo_dir_file)
+    repo_branch_file = pathlib.Path(settings.linkhosting_repo_branch_override_file)
+    if repo_branch_file.exists():
+        repo_branch = repo_branch_file.read_text().strip()
+        if repo_branch:
+            settings.linkhosting_repo_branch = repo_branch
+            log.info("Loaded LinkHosting repo branch override from %s", repo_branch_file)
+
     # Ensure the CoreDNS hosts file exists before the DNS container tries to
     # read it.  The file lives on a shared named volume (dns_hosts) that starts
     # empty on the first `docker compose up`.

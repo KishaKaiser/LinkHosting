@@ -883,6 +883,66 @@ async def change_password_post(
 
 # ── GitHub token ──────────────────────────────────────────────────────────────
 
+# ── LinkHosting repo configuration ───────────────────────────────────────────
+
+_BRANCH_RE = re.compile(r"^[A-Za-z0-9._\-/]+$")
+
+
+@router.post("/settings/linkhosting-repo")
+async def save_linkhosting_repo(
+    request: Request,
+    repo_dir: str = Form(...),
+    repo_branch: str = Form(...),
+):
+    """Save the local LinkHosting Git checkout path and branch used for self-updates."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    repo_dir = repo_dir.strip()
+    repo_branch = repo_branch.strip() or "main"
+
+    if repo_dir and not posixpath.isabs(repo_dir):
+        request.session["flash_error"] = (
+            "Repo directory must be an absolute path (e.g. /srv/linkhosting)."
+        )
+        return RedirectResponse("/panel/settings", status_code=302)
+
+    if not _BRANCH_RE.match(repo_branch):
+        request.session["flash_error"] = (
+            "Branch name may only contain letters, digits, hyphens, dots, underscores, and slashes."
+        )
+        return RedirectResponse("/panel/settings", status_code=302)
+
+    settings.linkhosting_repo_dir = repo_dir
+    settings.linkhosting_repo_branch = repo_branch
+
+    import pathlib, os
+
+    for path_str, content, setting_name in [
+        (settings.linkhosting_repo_dir_override_file, repo_dir, "repo dir"),
+        (settings.linkhosting_repo_branch_override_file, repo_branch, "repo branch"),
+    ]:
+        override_path = pathlib.Path(path_str)
+        try:
+            override_path.parent.mkdir(parents=True, exist_ok=True)
+            override_path.write_text(content)
+            os.chmod(override_path, 0o600)
+            log.info("LinkHosting %s override written to %s", setting_name, override_path)
+        except OSError as exc:
+            log.warning(
+                "Could not persist LinkHosting %s to %s: %s", setting_name, override_path, exc
+            )
+
+    if repo_dir:
+        request.session["flash_message"] = (
+            f"LinkHosting repo configured: {repo_dir} (branch: {repo_branch})."
+        )
+    else:
+        request.session["flash_message"] = "LinkHosting repo configuration cleared."
+    return RedirectResponse("/panel/settings", status_code=302)
+
+
 # ── LinkHosting app update ────────────────────────────────────────────────────
 
 @router.post("/settings/update-linkhosting")
