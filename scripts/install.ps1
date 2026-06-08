@@ -115,7 +115,7 @@ if ($null -eq $dockerCmd) {
     Write-Ok "Docker daemon is running"
 }
 
-# docker compose (v2 plugin preferred; fall back to standalone)
+# docker compose v2 plugin (required)
 $composeAvailable = $false
 try {
     docker compose version 2>&1 | Out-Null
@@ -123,14 +123,8 @@ try {
     $composeAvailable = $true
 } catch {}
 if (-not $composeAvailable) {
-    $dcCmd = Get-Command docker-compose -ErrorAction SilentlyContinue
-    if ($null -ne $dcCmd) {
-        Write-Ok "docker-compose (standalone) → $($dcCmd.Source)"
-        $composeAvailable = $true
-    } else {
-        Write-Miss "docker compose not found.  Install via Docker Desktop or https://docs.docker.com/compose/install/"
-        $prereqOk = $false
-    }
+    Write-Miss "docker compose v2 plugin not found.  Install via Docker Desktop or https://docs.docker.com/compose/install/"
+    $prereqOk = $false
 }
 
 # Git (optional — needed only for GitHub-import feature)
