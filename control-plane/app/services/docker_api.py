@@ -1,10 +1,14 @@
-"""Docker Engine API helpers using the Python Docker SDK.
+"""Docker helpers for the control-plane.
 
-Replaces all ``subprocess`` calls to ``docker``/``docker compose`` inside the
-control-plane containers.  The worker and panel containers only need access to
-the Docker socket (``/var/run/docker.sock``) – no Docker CLI binary required.
+Provides:
+* ``run_compose_up`` – shared entry-point for all compose-based deployments.
+* Lower-level helpers that wrap the Python Docker SDK for operations that do
+  not have a compose equivalent (e.g. stopping individual containers, sending
+  signals, exec inside a running container).
 """
 import logging
+import subprocess
+from pathlib import Path
 
 import docker
 import docker.errors
@@ -19,129 +23,23 @@ def _client() -> docker.DockerClient:
     return docker.DockerClient(base_url=settings.docker_socket)
 
 
-def create_or_get_network(
-    name: str,
-    driver: str = "bridge",
-    internal: bool = False,
-) -> str:
-    """Ensure a Docker network exists; return its ID."""
-    client = _client()
-    try:
-        net = client.networks.get(name)
-        log.debug("Docker network already exists (id=%s)", net.id[:12])
-        return net.id
-    except docker.errors.NotFound:
-        net = client.networks.create(name, driver=driver, internal=internal)
-        log.info("Created Docker network (id=%s)", net.id[:12])
-        return net.id
+def run_compose_up(compose_file: Path) -> tuple[str, str]:
+    """Bring up all services defined in *compose_file* with ``docker compose up -d``.
 
+    Both WordPress and PL_CMS deployments share this single execution path so
+    that the exact same CLI is always used regardless of site type.
 
-def create_volume(name: str) -> str:
-    """Ensure a Docker named volume exists; return its name."""
-    client = _client()
-    try:
-        vol = client.volumes.get(name)
-        log.debug("Docker volume already exists")
-        return vol.name
-    except docker.errors.NotFound:
-        vol = client.volumes.create(name)
-        log.info("Created Docker volume")
-        return vol.name
-
-
-def build_image(
-    *,
-    path: str,
-    dockerfile: str,
-    tag: str,
-    buildargs: dict | None = None,
-    labels: dict | None = None,
-) -> str:
-    """Build a Docker image and return its id."""
-    client = _client()
-    try:
-        image, _ = client.images.build(
-            path=path,
-            dockerfile=dockerfile,
-            tag=tag,
-            rm=True,
-            forcerm=True,
-            pull=False,
-            buildargs=buildargs or {},
-            labels=labels or {},
-        )
-    except docker.errors.BuildError as exc:
-        message = str(exc)
-        for entry in reversed(exc.build_log):
-            detail = entry.get("errorDetail") or {}
-            if detail.get("message"):
-                message = detail["message"]
-                break
-            if entry.get("error"):
-                message = entry["error"]
-                break
-        raise RuntimeError(f"Docker build failed for {tag}: {message}") from exc
-    except docker.errors.APIError as exc:
-        raise RuntimeError(f"Docker build failed for {tag}: {exc.explanation}") from exc
-
-    log.info("Built Docker image (%s)", image.id[:12])
-    return image.id
-
-
-def run_container(
-    *,
-    name: str,
-    image: str,
-    environment: dict,
-    volumes: dict,
-    network: str,
-    extra_networks: list | None = None,
-    labels: dict,
-    restart_policy: str = "unless-stopped",
-    force_recreate: bool = False,
-) -> str:
-    """Create and start a container, returning its ID.
-
-    If a container with the same name already exists and is running its ID is
-    returned unchanged.  A stopped container with the same name is removed and
-    re-created.
+    Returns ``(stdout_msg, stderr_msg)``.  Raises ``RuntimeError`` on failure.
     """
-    client = _client()
-
-    # Check for an existing container with this name
     try:
-        existing = client.containers.get(name)
-        if existing.status == "running" and not force_recreate:
-            log.info("Container %s already running (%s)", name, existing.id[:12])
-            return existing.id
-        # Stopped or force-recreated — remove so we can recreate
-        existing.remove(force=True)
-        log.info("Removed stale container %s", name)
-    except docker.errors.NotFound:
-        pass
-
-    container = client.containers.run(
-        image,
-        name=name,
-        detach=True,
-        environment=environment,
-        volumes=volumes,
-        network=network,
-        labels=labels,
-        restart_policy={"Name": restart_policy},
-    )
-
-    # Attach to any additional networks
-    for net_name in (extra_networks or []):
-        try:
-            net = client.networks.get(net_name)
-            net.connect(container)
-            log.debug("Connected container %s to network %s", name, net_name)
-        except Exception as exc:
-            log.warning("Could not connect %s to network %s: %s", name, net_name, exc)
-
-    log.info("Started container %s (id=%s)", name, container.id[:12])
-    return container.id
+        subprocess.run(
+            ["docker", "compose", "-f", str(compose_file), "up", "-d"],
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"docker compose up failed for {compose_file}: {exc}") from exc
+    log.info("docker compose up -d succeeded for %s", compose_file)
+    return f"Started services from {compose_file}", ""
 
 
 def stop_remove_containers(names: list) -> None:
