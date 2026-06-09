@@ -422,7 +422,7 @@ def test_proxy_vhost_hyphenated_wordpress_site(tmp_path, monkeypatch):
     proxy_module.write_vhost(site, tls=False)
 
     conf = (tmp_path / "psychic-link.conf").read_text()
-    # Container name follows docker-compose naming: project-service-1
+    # Container name follows Docker Compose naming: project-service-1
     expected_upstream = "lh_wp_psychic_link-wp_psychic_link-1"
     assert f"proxy_pass http://{expected_upstream}:80" in conf
     assert "site-wp_psychic_link" not in conf

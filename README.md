@@ -13,10 +13,10 @@ Provision and manage multiple isolated websites on a single server via a **web-b
 | **Web Control Panel** | Browser UI at `/panel/` — login, dashboard, create sites, deploy, view logs |
 | **Per-site File Manager** | Browse and manage each site's host files; WordPress sites also include live `wp-content` access |
 | **Site types** | Static, PHP, Node.js, Python, Reverse Proxy, **WordPress**, **PL_CMS** |
-| **WordPress (one-click)** | Per-site docker-compose with WordPress + MariaDB, unique credentials |
-| **PL_CMS (one-click)** | Per-site docker-compose with web, api, postgres, and redis services |
+| **WordPress (one-click)** | Per-site Docker Compose with WordPress + MariaDB, unique credentials |
+| **PL_CMS (one-click)** | Per-site Docker Compose with web, api, postgres, and redis services |
 | **Background Jobs** | Redis + RQ worker for async WordPress and PL_CMS deployments |
-| **Isolation** | Per-site Docker container or docker-compose project |
+| **Isolation** | Per-site Docker container or Docker Compose project |
 | **Internal domains** | `sitename.link` (configurable suffix) |
 | **Built-in DNS** | CoreDNS serves `sitename.link` records automatically; clients point to this server |
 | **Nginx proxy** | Auto-generated per-site vhost configs; nginx reloaded on deploy |
@@ -354,8 +354,8 @@ python -m pytest tests/ -v
 - **Panel / API**: Python 3.12 + FastAPI + Jinja2 + SQLAlchemy
 - **Background Jobs**: Redis + RQ
 - **Control-plane DB**: PostgreSQL 16
-- **WordPress**: docker-compose per site (WordPress + MariaDB)
-- **PL_CMS**: docker-compose per site (web + api + PostgreSQL + Redis)
+- **WordPress**: Docker Compose per site (WordPress + MariaDB)
+- **PL_CMS**: Docker Compose per site (web + api + PostgreSQL + Redis)
 - **Proxy**: Nginx 1.27 (auto-configured per site)
 - **SFTP**: OpenSSH
 - **TLS**: Python `cryptography` library (internal CA)

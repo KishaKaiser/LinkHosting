@@ -142,7 +142,7 @@ class JobStatus(str, enum.Enum):
 
 
 class DeployJob(Base):
-    """Tracks background deployment jobs (WordPress docker-compose deployments)."""
+    """Tracks background deployment jobs (WordPress Docker Compose deployments)."""
     __tablename__ = "deploy_jobs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)

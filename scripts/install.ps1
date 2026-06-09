@@ -116,13 +116,10 @@ if ($null -eq $dockerCmd) {
 }
 
 # docker compose v2 plugin (required)
-$composeAvailable = $false
-try {
-    docker compose version 2>&1 | Out-Null
+docker compose version 2>&1 | Out-Null
+if ($LASTEXITCODE -eq 0) {
     Write-Ok "docker compose (plugin v2)"
-    $composeAvailable = $true
-} catch {}
-if (-not $composeAvailable) {
+} else {
     Write-Miss "docker compose v2 plugin not found.  Install via Docker Desktop or https://docs.docker.com/compose/install/"
     $prereqOk = $false
 }
@@ -199,6 +196,10 @@ if ($InstallService) {
 Write-Host ""
 Write-Host ("─" * 64)
 Write-Info "Starting LinkHosting stack (first run may take a few minutes)…"
+docker compose version 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Fail "Preflight failed: 'docker compose version' did not succeed. Install Docker Compose v2 and re-run."
+}
 docker compose up -d --build
 
 # ── Health check ─────────────────────────────────────────────────────────────
