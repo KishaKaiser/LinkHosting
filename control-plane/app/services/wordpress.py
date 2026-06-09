@@ -351,116 +351,33 @@ def deploy_wordpress(
     wordpress_env: dict[str, str] | None = None,
     php_ini_overrides: dict[str, str] | None = None,
 ) -> tuple[str, str]:
-    """
-    Deploy a WordPress site using the Docker Engine API.
+    """Deploy a WordPress site using ``docker compose up -d``.
 
-    Creates the required networks, volumes, and containers via the Docker SDK.
+    Generates the compose file and managed PHP ini then delegates to the
+    shared :func:`~app.services.docker_api.run_compose_up` helper so that
+    WordPress and PL_CMS follow the exact same execution path.
+
     Returns (stdout_msg, stderr_msg).
     Raises RuntimeError on failure.
     """
-    from app.services.docker_api import (
-        create_or_get_network,
-        create_volume,
-        run_container,
-    )
-
-    site_dir = site_project_dir(site_name)
-    secrets_file = site_dir / ".secrets"
-    php_ini_file = wordpress_php_ini_path(site_name)
+    from app.services.docker_api import run_compose_up
 
     # Always regenerate compose + managed ini so redeploys pick up settings changes.
-    _, credentials = generate_wordpress_compose(
+    compose_file, _ = generate_wordpress_compose(
         site_name,
         domain,
         wordpress_image=wordpress_image,
         wordpress_env=wordpress_env,
         php_ini_overrides=php_ini_overrides,
     )
-    if not _has_required_db_credentials(credentials):
-        credentials = _load_wordpress_secrets(secrets_file)
-
-    project = _compose_project_name(site_name)
-    wp_service = _wordpress_service_name(site_name)
 
     if settings.dev_mode:
-        log.info(
-            "[DEV] Would deploy WordPress for site %s via Docker API (project=%s)",
-            site_name,
-            project,
-        )
-        return f"[DEV] Docker API deploy for {site_name}", ""
+        log.info("[DEV] Would deploy WordPress for site %s via docker compose up", site_name)
+        return f"[DEV] docker compose deploy for {site_name}", ""
 
-    # ── Networks ──────────────────────────────────────────────────────────────
-    # Internal bridge for WP ↔ DB communication (not reachable from outside)
-    internal_net = f"{project}_internal"
-    # External proxy network – must already exist (created by the main stack)
-    proxy_net = "linkhosting_proxy"
-
-    create_or_get_network(internal_net, driver="bridge", internal=True)
-    create_or_get_network(proxy_net, driver="bridge", internal=False)
-
-    # ── Volumes ───────────────────────────────────────────────────────────────
-    wp_content_vol = f"{project}_{site_name}-wp-content"
-    db_data_vol = f"{project}_{site_name}-db-data"
-
-    create_volume(wp_content_vol)
-    create_volume(db_data_vol)
-
-    # ── Container names (match Docker Compose naming convention) ─────────────
-    db_container_name = f"{project}-db-1"
-    wp_container_name = f"{project}-{wp_service}-1"
-
-    db_name = credentials["db_name"]
-    db_user = credentials["db_user"]
-    db_password = credentials["db_password"]
-    db_root_password = credentials["db_root_password"]
-    table_prefix = credentials.get("table_prefix", "wp_")
-
-    common_labels = {
-        "linkhosting.site": site_name,
-        "linkhosting.domain": domain,
-        "linkhosting.type": "wordpress",
-    }
-
-    # ── MariaDB container (internal network only) ─────────────────────────────
-    run_container(
-        name=db_container_name,
-        image="mariadb:10.11",
-        environment={
-            "MARIADB_ROOT_PASSWORD": db_root_password,
-            "MARIADB_DATABASE": db_name,
-            "MARIADB_USER": db_user,
-            "MARIADB_PASSWORD": db_password,
-        },
-        volumes={db_data_vol: {"bind": "/var/lib/mysql", "mode": "rw"}},
-        network=internal_net,
-        labels=common_labels,
-    )
-
-    # ── WordPress container (internal + proxy networks) ───────────────────────
-    run_container(
-        name=wp_container_name,
-        image=wordpress_image or "wordpress:latest",
-        environment=_wordpress_environment(
-            db_container_name,
-            db_user,
-            db_password,
-            db_name,
-            table_prefix,
-            wordpress_env=wordpress_env,
-        ),
-        volumes={
-            wp_content_vol: {"bind": "/var/www/html/wp-content", "mode": "rw"},
-            str(php_ini_file): {"bind": _WORDPRESS_PHP_INI_CONTAINER_PATH, "mode": "ro"},
-        },
-        network=internal_net,
-        extra_networks=[proxy_net],
-        labels=common_labels,
-        force_recreate=True,
-    )
-
-    log.info("Deployed WordPress site %s via Docker API (project=%s)", site_name, project)
-    return f"WordPress site {site_name} deployed via Docker API", ""
+    stdout, stderr = run_compose_up(compose_file)
+    log.info("Deployed WordPress site %s via docker compose up", site_name)
+    return stdout, stderr
 
 
 def get_wordpress_container_name(site_name: str) -> str:

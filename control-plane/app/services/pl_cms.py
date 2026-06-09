@@ -3,7 +3,6 @@ import json
 import logging
 import secrets
 import string
-import time
 from pathlib import Path
 
 import yaml
@@ -397,41 +396,6 @@ def generate_pl_cms_compose(
     return compose_file, config
 
 
-def _wait_for_dependencies(site_name: str, config: dict, timeout: int = 60) -> None:
-    from app.services.docker_api import exec_in_container
-
-    postgres_container = get_pl_cms_container_name(site_name, "postgres")
-    redis_container = get_pl_cms_container_name(site_name, "redis")
-    deadline = time.time() + timeout
-
-    postgres_ready = False
-    redis_ready = False
-
-    while time.time() < deadline:
-        if not postgres_ready:
-            pg_code, _ = exec_in_container(
-                postgres_container,
-                [
-                    "pg_isready",
-                    "-U",
-                    config["secrets"]["postgres_user"],
-                    "-d",
-                    config["secrets"]["postgres_db"],
-                ],
-            )
-            postgres_ready = pg_code == 0
-
-        if not redis_ready:
-            redis_code, redis_output = exec_in_container(redis_container, ["redis-cli", "ping"])
-            redis_ready = redis_code == 0 and "PONG" in redis_output
-
-        if postgres_ready and redis_ready:
-            return
-        time.sleep(2)
-
-    raise RuntimeError("PL_CMS dependencies did not become ready in time")
-
-
 def deploy_pl_cms(
     site_name: str,
     domain: str,
@@ -439,100 +403,26 @@ def deploy_pl_cms(
     *,
     tls: bool = False,
 ) -> tuple[str, str]:
-    """Deploy a PL_CMS site using the Docker Engine API."""
-    from app.services.docker_api import (
-        build_image,
-        create_or_get_network,
-        create_volume,
-        run_container,
-    )
+    """Deploy a PL_CMS site using ``docker compose up -d``.
 
-    _, config = generate_pl_cms_compose(site_name, domain, env_vars_json, tls=tls)
+    Generates the compose file and Dockerfiles then delegates to the shared
+    :func:`~app.services.docker_api.run_compose_up` helper so that PL_CMS
+    and WordPress follow the exact same execution path.
+
+    Returns (stdout_msg, stderr_msg).
+    Raises RuntimeError on failure.
+    """
+    from app.services.docker_api import run_compose_up
+
+    compose_file, _ = generate_pl_cms_compose(site_name, domain, env_vars_json, tls=tls)
 
     if settings.dev_mode:
-        log.info("[DEV] Would deploy PL_CMS for site %s via Docker API", site_name)
-        return f"[DEV] Docker API deploy for {site_name}", ""
+        log.info("[DEV] Would deploy PL_CMS for site %s via docker compose up", site_name)
+        return f"[DEV] docker compose deploy for {site_name}", ""
 
-    project = config["project"]
-    internal_net = f"{project}_internal"
-    proxy_net = "linkhosting_proxy"
-    common_labels = {
-        "linkhosting.site": site_name,
-        "linkhosting.domain": domain,
-        "linkhosting.type": "pl_cms",
-    }
-
-    build_image(
-        path=str(config["site_dir"]),
-        dockerfile=str(config["dockerfiles"]["api"].relative_to(config["site_dir"])),
-        tag=config["api_image"],
-        buildargs={"NEXT_PUBLIC_API_BASE_URL": config["public_api_base_url"]},
-        labels={**common_labels, "linkhosting.service": "api"},
-    )
-    build_image(
-        path=str(config["site_dir"]),
-        dockerfile=str(config["dockerfiles"]["web"].relative_to(config["site_dir"])),
-        tag=config["web_image"],
-        buildargs={"NEXT_PUBLIC_API_BASE_URL": config["public_api_base_url"]},
-        labels={**common_labels, "linkhosting.service": "web"},
-    )
-
-    create_or_get_network(internal_net, driver="bridge", internal=True)
-    create_or_get_network(proxy_net, driver="bridge", internal=False)
-
-    postgres_volume = f"{project}_{site_name}-postgres-data"
-    redis_volume = f"{project}_{site_name}-redis-data"
-    create_volume(postgres_volume)
-    create_volume(redis_volume)
-
-    run_container(
-        name=get_pl_cms_container_name(site_name, "postgres"),
-        image="postgres:16-alpine",
-        environment={
-            "POSTGRES_DB": config["secrets"]["postgres_db"],
-            "POSTGRES_USER": config["secrets"]["postgres_user"],
-            "POSTGRES_PASSWORD": config["secrets"]["postgres_password"],
-        },
-        volumes={postgres_volume: {"bind": "/var/lib/postgresql/data", "mode": "rw"}},
-        network=internal_net,
-        labels={**common_labels, "linkhosting.service": "postgres"},
-        force_recreate=True,
-    )
-    run_container(
-        name=get_pl_cms_container_name(site_name, "redis"),
-        image="redis:7-alpine",
-        environment={},
-        volumes={redis_volume: {"bind": "/data", "mode": "rw"}},
-        network=internal_net,
-        labels={**common_labels, "linkhosting.service": "redis"},
-        force_recreate=True,
-    )
-
-    _wait_for_dependencies(site_name, config)
-
-    run_container(
-        name=get_pl_cms_container_name(site_name, "api"),
-        image=config["api_image"],
-        environment=config["api_env"],
-        volumes={},
-        network=internal_net,
-        extra_networks=[proxy_net],
-        labels={**common_labels, "linkhosting.service": "api"},
-        force_recreate=True,
-    )
-    run_container(
-        name=get_pl_cms_container_name(site_name, "web"),
-        image=config["web_image"],
-        environment=config["web_env"],
-        volumes={},
-        network=internal_net,
-        extra_networks=[proxy_net],
-        labels={**common_labels, "linkhosting.service": "web"},
-        force_recreate=True,
-    )
-
-    log.info("Deployed PL_CMS site via Docker API")
-    return f"PL_CMS site {site_name} deployed via Docker API", ""
+    stdout, stderr = run_compose_up(compose_file)
+    log.info("Deployed PL_CMS site %s via docker compose up", site_name)
+    return stdout, stderr
 
 
 def stop_pl_cms(site_name: str) -> tuple[str, str]:

@@ -116,7 +116,7 @@ def test_stop_pl_cms_dev_mode(tmp_path, monkeypatch):
     assert stderr == ""
 
 
-def test_deploy_pl_cms_prod_mode_calls_docker_api(tmp_path, monkeypatch):
+def test_deploy_pl_cms_prod_mode_calls_subprocess(tmp_path, monkeypatch):
     monkeypatch.setenv("SITES_BASE_DIR", str(tmp_path))
     monkeypatch.setenv("DEV_MODE", "false")
 
@@ -128,13 +128,8 @@ def test_deploy_pl_cms_prod_mode_calls_docker_api(tmp_path, monkeypatch):
     importlib.reload(pl_cms_module)
 
     try:
-        with (
-            patch("app.services.docker_api.build_image") as mock_build,
-            patch("app.services.docker_api.create_or_get_network") as mock_net,
-            patch("app.services.docker_api.create_volume") as mock_vol,
-            patch("app.services.docker_api.run_container") as mock_run,
-            patch.object(pl_cms_module, "_wait_for_dependencies") as mock_wait,
-        ):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = None
             stdout, stderr = pl_cms_module.deploy_pl_cms("plcms", "plcms.link")
     finally:
         config_module.settings = original_settings
@@ -142,17 +137,11 @@ def test_deploy_pl_cms_prod_mode_calls_docker_api(tmp_path, monkeypatch):
 
     assert stderr == ""
     assert "plcms" in stdout
-    assert mock_build.call_count == 2
-    assert mock_net.call_count == 2
-    assert mock_vol.call_count == 2
-    assert mock_run.call_count == 4
-    assert mock_wait.call_count == 1
-
-    api_call = mock_run.call_args_list[2]
-    web_call = mock_run.call_args_list[3]
-    assert api_call.kwargs["environment"]["DATABASE_URL"].startswith("postgresql://")
-    assert web_call.kwargs["environment"]["API_BASE_URL"] == "http://lh_plcms_plcms-api-1:3001/api"
-    assert web_call.kwargs["extra_networks"] == ["linkhosting_proxy"]
+    mock_run.assert_called_once()
+    call_args = mock_run.call_args[0][0]
+    assert call_args[:3] == ["docker", "compose", "-f"]
+    assert call_args[4:] == ["up", "-d"]
+    assert "plcms" in call_args[3]  # compose file path contains site name
 
 
 def test_proxy_vhost_includes_pl_cms_routes(tmp_path, monkeypatch):
