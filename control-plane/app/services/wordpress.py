@@ -406,7 +406,7 @@ def deploy_wordpress(
     create_volume(wp_content_vol)
     create_volume(db_data_vol)
 
-    # ── Container names (match docker-compose naming convention) ─────────────
+    # ── Container names (match Docker Compose naming convention) ─────────────
     db_container_name = f"{project}-db-1"
     wp_container_name = f"{project}-{wp_service}-1"
 

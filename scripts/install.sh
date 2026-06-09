@@ -445,6 +445,9 @@ fi
 echo ""
 echo "────────────────────────────────────────────────────────────────"
 info "Starting LinkHosting stack (first run may take a few minutes)..."
+if ! docker compose version >/dev/null 2>&1; then
+  fail "Preflight failed: 'docker compose version' did not succeed. Install docker-compose-plugin and retry."
+fi
 "${DOCKER_COMPOSE[@]}" up -d --build
 
 # ── Worker readiness check ────────────────────────────────────────────────────

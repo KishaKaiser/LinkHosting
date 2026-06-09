@@ -52,9 +52,9 @@
         </form>
     </div>
     {% if site.site_type.value == 'wordpress' %}
-    <p class="text-muted mt-1">WordPress sites are deployed via docker-compose. Deploy runs in the background — check the Jobs section below.</p>
+    <p class="text-muted mt-1">WordPress sites are deployed via Docker Compose. Deploy runs in the background — check the Jobs section below.</p>
     {% elif site.site_type.value == 'pl_cms' %}
-    <p class="text-muted mt-1">PL_CMS sites are deployed via a generated docker-compose stack (web, api, postgres, redis). Deploy runs in the background — check the Jobs section below.</p>
+    <p class="text-muted mt-1">PL_CMS sites are deployed via a generated Docker Compose stack (web, api, postgres, redis). Deploy runs in the background — check the Jobs section below.</p>
     {% endif %}
     <p class="text-muted mt-1">
         <strong>SSL:</strong> Issues a certificate from the internal CA for <code>{{ site.domain }}</code>.

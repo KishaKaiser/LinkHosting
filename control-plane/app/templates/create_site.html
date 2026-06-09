@@ -22,8 +22,8 @@
             <label for="site_type">Site Type</label>
             <select id="site_type" name="site_type">
                 <option value="">— auto-detect from repo —</option>
-                <option value="wordpress" {% if form.site_type == 'wordpress' %}selected{% endif %}>WordPress (docker-compose)</option>
-                <option value="pl_cms"    {% if form.site_type == 'pl_cms'    %}selected{% endif %}>PL_CMS (docker-compose)</option>
+                <option value="wordpress" {% if form.site_type == 'wordpress' %}selected{% endif %}>WordPress (Docker Compose)</option>
+                <option value="pl_cms"    {% if form.site_type == 'pl_cms'    %}selected{% endif %}>PL_CMS (Docker Compose)</option>
                 <option value="static"    {% if form.site_type == 'static'    %}selected{% endif %}>Static</option>
                 <option value="php"       {% if form.site_type == 'php'       %}selected{% endif %}>PHP</option>
                 <option value="node"      {% if form.site_type == 'node'      %}selected{% endif %}>Node.js</option>
