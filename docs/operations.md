@@ -250,6 +250,10 @@ docker compose build
 docker compose up -d
 ```
 
+> Compose-based site deployments are executed from the control-plane runtime.
+> Rebuild/recreate `panel` and `worker` on upgrade so they include the Docker
+> CLI needed for `docker compose` site deploys.
+
 ---
 
 ## Backup

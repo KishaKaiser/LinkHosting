@@ -36,6 +36,11 @@ def run_compose_up(compose_file: Path) -> tuple[str, str]:
             ["docker", "compose", "-f", str(compose_file), "up", "-d"],
             check=True,
         )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "docker CLI is not available in the control-plane runtime. "
+            "Ensure the runtime image includes Docker CLI support."
+        ) from exc
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(f"docker compose up failed for {compose_file}: {exc}") from exc
     log.info("docker compose up -d succeeded for %s", compose_file)
