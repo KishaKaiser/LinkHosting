@@ -1,6 +1,7 @@
 """Unit tests for docker_api helper module."""
 import os
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 os.environ["DEV_MODE"] = "true"
@@ -33,6 +34,14 @@ def _make_client_mock(
 
 
 # ── run_compose_up ────────────────────────────────────────────────────────────
+
+def test_control_plane_runtime_installs_docker_compose_cli():
+    """Control-plane runtime image should include docker CLI + compose plugin."""
+    dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile"
+    content = dockerfile.read_text()
+    assert "docker" in content
+    assert "docker-compose-plugin" in content
+
 
 def test_run_compose_up_calls_subprocess(tmp_path):
     """run_compose_up should invoke docker compose up -d via subprocess."""

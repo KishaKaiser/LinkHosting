@@ -113,6 +113,9 @@ nano .env
 ```bash
 docker compose up -d --build
 curl http://localhost:8000/health   # → {"status":"ok"}
+
+# Fresh-install runtime check for compose-based site deploys
+docker compose exec worker sh -lc 'which docker && docker --version && docker compose version'
 ```
 
 Open the **web control panel** at: **http://localhost:8000/panel/**
