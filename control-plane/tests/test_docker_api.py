@@ -66,6 +66,20 @@ def test_run_compose_up_raises_on_failure(tmp_path):
             assert "docker compose up failed" in str(exc)
 
 
+def test_run_compose_up_raises_clear_error_when_docker_missing(tmp_path):
+    """run_compose_up should raise clear RuntimeError when docker CLI is missing."""
+    compose_file = tmp_path / "docker-compose.yml"
+    compose_file.write_text("version: '3'")
+
+    from app.services import docker_api
+    with patch("subprocess.run", side_effect=FileNotFoundError("docker")):
+        try:
+            docker_api.run_compose_up(compose_file)
+            assert False, "Expected RuntimeError"
+        except RuntimeError as exc:
+            assert "docker CLI is not available" in str(exc)
+
+
 # ── stop_remove_containers ────────────────────────────────────────────────────
 
 def test_stop_remove_containers():
