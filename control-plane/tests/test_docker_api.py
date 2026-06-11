@@ -36,11 +36,18 @@ def _make_client_mock(
 # ── run_compose_up ────────────────────────────────────────────────────────────
 
 def test_control_plane_runtime_installs_docker_compose_cli():
-    """Control-plane runtime image should include docker CLI + compose plugin."""
+    """Control-plane runtime image should include docker CLI + compose plugin.
+
+    Specifically requires docker-ce-cli from Docker's official apt repo, NOT
+    the unreliable docker.io package from default Debian sources which does not
+    bundle docker-compose-plugin.
+    """
     dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile"
     content = dockerfile.read_text()
-    assert "docker" in content
-    assert "docker-compose-plugin" in content
+    assert "docker-ce-cli" in content, "Dockerfile must install docker-ce-cli (not docker.io)"
+    assert "docker-compose-plugin" in content, "Dockerfile must install docker-compose-plugin"
+    assert "docker.io" not in content, "Dockerfile must NOT install docker.io (use docker-ce-cli instead)"
+    assert "download.docker.com" in content, "Dockerfile must add Docker's official apt repo"
 
 
 def test_run_compose_up_calls_subprocess(tmp_path):
