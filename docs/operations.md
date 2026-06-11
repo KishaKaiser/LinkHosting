@@ -262,6 +262,8 @@ docker compose up -d
 > Compose-based site deployments are executed from the control-plane runtime.
 > Rebuild/recreate `panel` and `worker` on upgrade so they include the Docker
 > CLI needed for `docker compose` site deploys.
+> PL_CMS deploys also require the cloned pnpm monorepo files to already exist in
+> the site directory because the generated Compose build context is rooted there.
 
 ---
 

@@ -35,6 +35,13 @@ _RESERVED_API_ENV = frozenset(
         "API_BASE_URL",
     }
 )
+_REQUIRED_BUILD_CONTEXT_PATHS = (
+    "pnpm-workspace.yaml",
+    "pnpm-lock.yaml",
+    "apps/web/package.json",
+    "apps/api/package.json",
+    "packages/db/package.json",
+)
 
 
 def _random_secret(length: int = 48) -> str:
@@ -219,6 +226,19 @@ def _write_dockerfiles(site_dir: Path) -> dict[str, Path]:
     dockerfiles["web"].write_text(_web_dockerfile())
     dockerfiles["api"].write_text(_api_dockerfile())
     return dockerfiles
+
+
+def _validate_build_context(site_dir: Path) -> None:
+    missing_paths = [rel_path for rel_path in _REQUIRED_BUILD_CONTEXT_PATHS if not (site_dir / rel_path).exists()]
+    if not missing_paths:
+        return
+
+    missing = ", ".join(missing_paths)
+    raise RuntimeError(
+        "PL_CMS source/build context is missing from "
+        f"{site_dir}. Expected the cloned PL_CMS monorepo in the site directory before deploy. "
+        f"Missing: {missing}. Re-import or clone the PL_CMS repository into this site directory and retry."
+    )
 
 
 def _build_runtime_config(
@@ -420,6 +440,7 @@ def deploy_pl_cms(
         log.info("[DEV] Would deploy PL_CMS for site %s via docker compose up", site_name)
         return f"[DEV] docker compose deploy for {site_name}", ""
 
+    _validate_build_context(compose_file.parent)
     stdout, stderr = run_compose_up(compose_file)
     log.info("Deployed PL_CMS site %s via docker compose up", site_name)
     return stdout, stderr
