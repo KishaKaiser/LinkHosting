@@ -50,7 +50,16 @@ docker compose ps
 docker compose logs control-plane
 ```
 
-### 4. Verify health
+### 4. Verify runtime Docker CLI (fresh install)
+
+```bash
+docker compose exec worker sh -lc 'which docker && docker --version && docker compose version'
+```
+
+Expected: all three commands succeed. This confirms the control-plane runtime
+(`panel`/`worker`) can execute `docker compose` for WordPress and PL_CMS deploys.
+
+### 5. Verify health
 
 ```bash
 curl http://localhost:8000/health
