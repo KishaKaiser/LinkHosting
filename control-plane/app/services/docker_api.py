@@ -35,6 +35,8 @@ def run_compose_up(compose_file: Path) -> tuple[str, str]:
         subprocess.run(
             ["docker", "compose", "-f", str(compose_file), "up", "-d"],
             check=True,
+            capture_output=True,
+            text=True,
         )
     except FileNotFoundError as exc:
         raise RuntimeError(
@@ -42,7 +44,16 @@ def run_compose_up(compose_file: Path) -> tuple[str, str]:
             "Ensure the runtime image includes Docker CLI support."
         ) from exc
     except subprocess.CalledProcessError as exc:
-        raise RuntimeError(f"docker compose up failed for {compose_file}: {exc}") from exc
+        details: list[str] = []
+        if exc.stderr and exc.stderr.strip():
+            details.append(f"stderr:\n{exc.stderr.strip()}")
+        if exc.stdout and exc.stdout.strip():
+            details.append(f"stdout:\n{exc.stdout.strip()}")
+
+        detail_msg = f"\n\n{'\n\n'.join(details)}" if details else ""
+        raise RuntimeError(
+            f"docker compose up failed for {compose_file} (exit {exc.returncode}).{detail_msg}"
+        ) from exc
     log.info("docker compose up -d succeeded for %s", compose_file)
     return f"Started services from {compose_file}", ""
 

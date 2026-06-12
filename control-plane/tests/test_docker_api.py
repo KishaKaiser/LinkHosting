@@ -63,6 +63,8 @@ def test_run_compose_up_calls_subprocess(tmp_path):
     mock_run.assert_called_once_with(
         ["docker", "compose", "-f", str(compose_file), "up", "-d"],
         check=True,
+        capture_output=True,
+        text=True,
     )
     assert str(compose_file) in stdout
     assert stderr == ""
@@ -74,12 +76,21 @@ def test_run_compose_up_raises_on_failure(tmp_path):
     compose_file.write_text("version: '3'")
 
     from app.services import docker_api
-    with patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, "docker")):
+    error = subprocess.CalledProcessError(
+        1,
+        ["docker", "compose"],
+        output="compose stdout",
+        stderr="compose stderr",
+    )
+    with patch("subprocess.run", side_effect=error):
         try:
             docker_api.run_compose_up(compose_file)
             assert False, "Expected RuntimeError"
         except RuntimeError as exc:
             assert "docker compose up failed" in str(exc)
+            assert "exit 1" in str(exc)
+            assert "compose stderr" in str(exc)
+            assert "compose stdout" in str(exc)
 
 
 def test_run_compose_up_raises_clear_error_when_docker_missing(tmp_path):

@@ -285,7 +285,9 @@ See [docs/ca-trust.md](docs/ca-trust.md) for other platforms (macOS, Windows, Fi
    - Creates `/srv/linkhosting/sites/<name>/docker-compose.yml` with `web`, `api`, `postgres`, and `redis` services
    - Generates per-site PostgreSQL credentials plus JWT secrets and persists them in the generated compose-managed deployment config
    - Generates per-site Dockerfiles under `/srv/linkhosting/sites/<name>/.linkhosting/pl_cms/`
+   - Validates that the site directory already contains the cloned PL_CMS pnpm monorepo before invoking `docker compose up`
    - Builds the PL_CMS web/api images from the cloned pnpm monorepo and deploys the containers
+   - Surfaces underlying `docker compose` stdout/stderr in job logs when Compose fails
    - Writes an Nginx vhost that routes `/api` and `/ws` to the API container and all other traffic to the web container
 5. Job status is updated to `succeeded` or `failed` with captured logs
 
