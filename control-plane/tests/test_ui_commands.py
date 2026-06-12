@@ -56,6 +56,22 @@ def test_run_migrations_success(client, monkeypatch):
     assert "head" in captured["args"]
 
 
+def test_web_create_pl_cms_site_records_default_repo(client):
+    """Creating PL_CMS from the panel should wire the one-click source repo."""
+    _authenticated_client(client)
+
+    resp = client.post(
+        "/panel/sites/new",
+        data={"name": "panel-plcms", "site_type": "pl_cms"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+
+    site_resp = client.get("/sites/panel-plcms")
+    assert site_resp.status_code == 200
+    assert site_resp.json()["git_repo"] == "https://github.com/KishaKaiser/PL_CMS.git"
+
+
 def test_run_migrations_failure(client, monkeypatch):
     """Failed migration should flash an error message."""
     _authenticated_client(client)

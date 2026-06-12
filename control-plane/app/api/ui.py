@@ -320,6 +320,10 @@ async def create_site_post(
             site_type_enum = detect_site_type(site_dir)
             log.info("UI: Auto-detected site type %s for %s", site_type_enum, name)
 
+    if site_type_enum == SiteType.pl_cms and not git_repo:
+        from app.services.pl_cms import default_pl_cms_repo_url
+        git_repo = default_pl_cms_repo_url()
+
     site = Site(
         name=name,
         domain=final_domain,

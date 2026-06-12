@@ -101,3 +101,9 @@ def test_all_site_types(client):
     for i, stype in enumerate(["static", "php", "node", "python", "proxy", "wordpress", "pl_cms"]):
         resp = client.post("/sites", json={"name": f"site-{i}", "site_type": stype})
         assert resp.status_code == 201, f"Failed for type {stype}: {resp.json()}"
+
+
+def test_create_pl_cms_site_records_default_repo(client):
+    resp = client.post("/sites", json={"name": "plcms", "site_type": "pl_cms"})
+    assert resp.status_code == 201
+    assert resp.json()["git_repo"] == "https://github.com/KishaKaiser/PL_CMS.git"
