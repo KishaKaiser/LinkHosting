@@ -72,6 +72,10 @@ def create_site(payload: SiteCreate, db: Session = Depends(get_db)):
             detail="site_type is required when github_repo is not provided",
         )
 
+    if site_type == SiteType.pl_cms and not git_repo:
+        from app.services.pl_cms import default_pl_cms_repo_url
+        git_repo = default_pl_cms_repo_url()
+
     env_json: Optional[str] = None
     if payload.env_vars:
         env_json = json.dumps(payload.env_vars)

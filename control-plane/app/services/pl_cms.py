@@ -47,6 +47,11 @@ _PL_CMS_DEFAULT_REPO_URL = "https://github.com/KishaKaiser/PL_CMS.git"
 _PL_CMS_GENERATED_ASSET_PATHS = frozenset({"docker-compose.yml", ".linkhosting", ".secrets"})
 
 
+def default_pl_cms_repo_url() -> str:
+    """Return the GitHub repository used for one-click PL_CMS installs."""
+    return _PL_CMS_DEFAULT_REPO_URL
+
+
 def _random_secret(length: int = 48) -> str:
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
