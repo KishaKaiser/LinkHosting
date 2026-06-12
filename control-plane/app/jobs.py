@@ -135,7 +135,7 @@ def run_pl_cms_deploy(job_id: int) -> None:
     from app.config import settings
     from app.models import DeployJob, JobStatus, Site, SiteStatus
     from app.services.dns import add_dns_record
-    from app.services.pl_cms import deploy_pl_cms, generate_pl_cms_compose, get_pl_cms_container_name
+    from app.services.pl_cms import deploy_pl_cms, get_pl_cms_container_name
     from app.services.proxy import reload_proxy, write_vhost
 
     engine = create_engine(
@@ -167,14 +167,15 @@ def run_pl_cms_deploy(job_id: int) -> None:
         log_lines: list[str] = []
 
         try:
-            compose_file, _ = generate_pl_cms_compose(
+            stdout, stderr = deploy_pl_cms(
                 site.name,
                 site.domain,
                 site.env_vars,
+                repo_url=site.git_repo,
+                repo_branch=site.git_branch,
             )
+            compose_file = os.path.join(settings.sites_base_dir, site.name, "docker-compose.yml")
             log_lines.append(f"Generated compose file: {compose_file}")
-
-            stdout, stderr = deploy_pl_cms(site.name, site.domain, site.env_vars)
             if stdout:
                 log_lines.append(stdout)
             if stderr:

@@ -256,12 +256,17 @@ def _run_deploy_inline(job_record: DeployJob, site: Site, db: Session) -> None:
         else:
             from app.services.pl_cms import (
                 deploy_pl_cms,
-                generate_pl_cms_compose,
                 get_pl_cms_container_name,
             )
 
-            compose_file, _ = generate_pl_cms_compose(site.name, site.domain, site.env_vars)
-            stdout, stderr = deploy_pl_cms(site.name, site.domain, site.env_vars)
+            stdout, stderr = deploy_pl_cms(
+                site.name,
+                site.domain,
+                site.env_vars,
+                repo_url=site.git_repo,
+                repo_branch=site.git_branch,
+            )
+            compose_file = Path(settings.sites_base_dir) / site.name / "docker-compose.yml"
             container_name = get_pl_cms_container_name(site.name, "web")
 
         log_lines.append(f"Generated compose file: {compose_file}")

@@ -2,6 +2,7 @@
 import json
 import logging
 import secrets
+import shutil
 import string
 from pathlib import Path
 
@@ -42,6 +43,8 @@ _REQUIRED_BUILD_CONTEXT_PATHS = (
     "apps/api/package.json",
     "packages/db/package.json",
 )
+_PL_CMS_DEFAULT_REPO_URL = "https://github.com/KishaKaiser/PL_CMS.git"
+_PL_CMS_GENERATED_ASSET_PATHS = frozenset({"docker-compose.yml", ".linkhosting", ".secrets"})
 
 
 def _random_secret(length: int = 48) -> str:
@@ -241,6 +244,35 @@ def _validate_build_context(site_dir: Path) -> None:
     )
 
 
+def _stage_pl_cms_source_if_missing(
+    site_dir: Path,
+    *,
+    repo_url: str | None = None,
+    repo_branch: str | None = None,
+) -> None:
+    if all((site_dir / rel_path).exists() for rel_path in _REQUIRED_BUILD_CONTEXT_PATHS):
+        return
+
+    from app.services.github import clone_repo, _validate_github_url
+
+    source_repo = _validate_github_url((repo_url or _PL_CMS_DEFAULT_REPO_URL).strip())
+
+    if site_dir.exists():
+        existing_paths = {entry.name for entry in site_dir.iterdir()}
+        unknown_paths = sorted(existing_paths - _PL_CMS_GENERATED_ASSET_PATHS)
+        if unknown_paths:
+            log.info(
+                "Skipping automatic PL_CMS source import for %s because site directory contains user-managed paths: %s",
+                site_dir,
+                ", ".join(unknown_paths),
+            )
+            return
+        shutil.rmtree(site_dir)
+
+    clone_repo(source_repo, site_dir, branch=repo_branch)
+    log.info("Imported PL_CMS source %s into %s", source_repo, site_dir)
+
+
 def _build_runtime_config(
     site_name: str,
     domain: str,
@@ -421,6 +453,8 @@ def deploy_pl_cms(
     domain: str,
     env_vars_json: str | None = None,
     *,
+    repo_url: str | None = None,
+    repo_branch: str | None = None,
     tls: bool = False,
 ) -> tuple[str, str]:
     """Deploy a PL_CMS site using ``docker compose up -d``.
@@ -434,13 +468,18 @@ def deploy_pl_cms(
     """
     from app.services.docker_api import run_compose_up
 
-    compose_file, _ = generate_pl_cms_compose(site_name, domain, env_vars_json, tls=tls)
-
     if settings.dev_mode:
         log.info("[DEV] Would deploy PL_CMS for site %s via docker compose up", site_name)
         return f"[DEV] docker compose deploy for {site_name}", ""
 
-    _validate_build_context(compose_file.parent)
+    site_dir = Path(settings.sites_base_dir) / site_name
+    _stage_pl_cms_source_if_missing(
+        site_dir,
+        repo_url=repo_url,
+        repo_branch=repo_branch,
+    )
+    _validate_build_context(site_dir)
+    compose_file, _ = generate_pl_cms_compose(site_name, domain, env_vars_json, tls=tls)
     stdout, stderr = run_compose_up(compose_file)
     log.info("Deployed PL_CMS site %s via docker compose up", site_name)
     return stdout, stderr

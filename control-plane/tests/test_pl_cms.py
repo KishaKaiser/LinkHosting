@@ -157,7 +157,7 @@ def test_deploy_pl_cms_prod_mode_calls_subprocess(tmp_path, monkeypatch):
     assert "plcms" in call_args[3]  # compose file path contains site name
 
 
-def test_deploy_pl_cms_prod_mode_fails_early_when_build_context_missing(tmp_path, monkeypatch):
+def test_deploy_pl_cms_prod_mode_imports_source_when_build_context_missing(tmp_path, monkeypatch):
     monkeypatch.setenv("SITES_BASE_DIR", str(tmp_path))
     monkeypatch.setenv("DEV_MODE", "false")
 
@@ -169,17 +169,57 @@ def test_deploy_pl_cms_prod_mode_fails_early_when_build_context_missing(tmp_path
     importlib.reload(pl_cms_module)
 
     try:
-        with patch("app.services.docker_api.run_compose_up") as mock_run:
+        def _clone_side_effect(_repo_url, target_dir, branch=None):
+            assert branch is None
+            _write_pl_cms_build_context(target_dir)
+
+        with (
+            patch("app.services.github.clone_repo", side_effect=_clone_side_effect) as mock_clone,
+            patch("app.services.docker_api.run_compose_up") as mock_run,
+        ):
+            mock_run.return_value = ("ok", "")
+            stdout, stderr = pl_cms_module.deploy_pl_cms("plcms", "plcms.link")
+
+        assert stdout == "ok"
+        assert stderr == ""
+        mock_clone.assert_called_once()
+        assert mock_clone.call_args.args[0] == "https://github.com/KishaKaiser/PL_CMS.git"
+        assert mock_clone.call_args.args[1] == tmp_path / "plcms"
+        mock_run.assert_called_once()
+    finally:
+        config_module.settings = original_settings
+        importlib.reload(pl_cms_module)
+
+
+def test_deploy_pl_cms_prod_mode_preserves_non_template_site_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("SITES_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("DEV_MODE", "false")
+
+    import app.config as config_module
+    original_settings = config_module.settings
+    config_module.settings = config_module.Settings()
+
+    from app.services import pl_cms as pl_cms_module
+    importlib.reload(pl_cms_module)
+
+    site_dir = tmp_path / "plcms"
+    site_dir.mkdir()
+    (site_dir / "custom.txt").write_text("keep-me")
+
+    try:
+        with (
+            patch("app.services.github.clone_repo") as mock_clone,
+            patch("app.services.docker_api.run_compose_up") as mock_run,
+        ):
             try:
                 pl_cms_module.deploy_pl_cms("plcms", "plcms.link")
                 assert False, "Expected RuntimeError"
             except RuntimeError as exc:
                 message = str(exc)
                 assert "PL_CMS source/build context is missing" in message
-                assert "pnpm-workspace.yaml" in message
-                assert "apps/web/package.json" in message
-                assert str(tmp_path / "plcms") in message
-        mock_run.assert_not_called()
+                assert "custom.txt" not in message
+            mock_clone.assert_not_called()
+            mock_run.assert_not_called()
     finally:
         config_module.settings = original_settings
         importlib.reload(pl_cms_module)
