@@ -188,6 +188,7 @@ def run_pl_cms_deploy(job_id: int) -> None:
 
             add_dns_record(site.domain)
             log_lines.append(f"Added DNS record for {site.domain}")
+            log_lines.append(f"PL_CMS installer: http://{site.domain}/install")
 
             site.container_id = get_pl_cms_container_name(site.name, "web")
             site.status = SiteStatus.running

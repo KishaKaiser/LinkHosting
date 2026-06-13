@@ -287,6 +287,8 @@ def _run_deploy_inline(job_record: DeployJob, site: Site, db: Session) -> None:
         from app.services.dns import add_dns_record
         add_dns_record(site.domain)
         log_lines.append(f"Added DNS record for {site.domain}")
+        if site.site_type == SiteType.pl_cms:
+            log_lines.append(f"PL_CMS installer: http://{site.domain}/install")
 
         site.container_id = container_name
         site.status = SiteStatus.running
