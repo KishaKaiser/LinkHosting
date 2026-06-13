@@ -296,7 +296,7 @@ def _build_runtime_config(
     api_container = get_pl_cms_container_name(site_name, "api")
     scheme = "https" if tls else "http"
     public_web_base_url = user_env.get("WEB_BASE_URL") or f"{scheme}://{domain}"
-    public_api_base_url = user_env.get("NEXT_PUBLIC_API_BASE_URL") or f"{public_web_base_url.rstrip('/')}/api"
+    public_api_base_url = user_env.get("NEXT_PUBLIC_API_BASE_URL") or public_web_base_url.rstrip("/")
     internal_api_base_url = f"http://{api_container}:3001/api"
 
     api_env = {
