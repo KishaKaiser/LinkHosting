@@ -138,6 +138,7 @@ services:
     networks:
       - backend
       - proxy
+      - egress
     ports:
       - "${PANEL_PORT:-0.0.0.0:8000}:8000"
     logging: *default-logging
@@ -180,6 +181,7 @@ services:
       - dns_hosts:/data/dns
     networks:
       - backend
+      - egress
     logging: *default-logging
 
   # ── CoreDNS (internal DNS server) ─────────────────────────────────────────
@@ -280,6 +282,8 @@ networks:
   proxy:
     driver: bridge
     name: linkhosting_proxy
+  egress:
+    driver: bridge
   sites:
     name: ${COMPOSE_PROJECT_NAME:-linkhosting}_sites
     driver: bridge
