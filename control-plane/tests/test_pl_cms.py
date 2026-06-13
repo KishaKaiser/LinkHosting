@@ -67,6 +67,8 @@ def test_generate_pl_cms_compose_prod_mode(tmp_path, monkeypatch):
 
     assert config["dockerfiles"]["web"].exists()
     assert config["dockerfiles"]["api"].exists()
+    assert "FROM node:22-bookworm-slim" in config["dockerfiles"]["web"].read_text()
+    assert "corepack prepare pnpm@9.0.0" not in config["dockerfiles"]["web"].read_text()
 
 
 def test_generate_pl_cms_compose_reuses_existing_secrets(tmp_path, monkeypatch):
