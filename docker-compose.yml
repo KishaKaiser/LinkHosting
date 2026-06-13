@@ -139,6 +139,9 @@ services:
       - backend
       - proxy
       - egress
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     ports:
       - "${PANEL_PORT:-0.0.0.0:8000}:8000"
     logging: *default-logging
@@ -182,6 +185,9 @@ services:
     networks:
       - backend
       - egress
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     logging: *default-logging
 
   # ── CoreDNS (internal DNS server) ─────────────────────────────────────────
