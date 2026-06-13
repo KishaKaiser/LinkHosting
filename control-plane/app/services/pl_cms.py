@@ -182,10 +182,10 @@ def _dockerfile_paths(site_dir: Path) -> dict[str, Path]:
 
 def _web_dockerfile() -> str:
     return """\
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+RUN corepack enable
 
 COPY . .
 
@@ -204,10 +204,10 @@ CMD ["pnpm", "--filter", "@pl-cms/web", "start"]
 
 def _api_dockerfile() -> str:
     return """\
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+RUN corepack enable
 
 COPY . .
 
