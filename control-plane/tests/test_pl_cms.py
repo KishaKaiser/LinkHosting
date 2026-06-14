@@ -36,7 +36,7 @@ def test_generate_pl_cms_compose_dev_mode(tmp_path, monkeypatch):
         importlib.reload(pl_cms_module)
 
     assert not compose_file.exists()
-    assert config["public_api_base_url"] == "http://plcms.link"
+    assert config["public_api_base_url"] == ""
     assert config["web_env"]["API_BASE_URL"] == "http://lh_plcms_plcms-api-1:3001/api"
 
 
@@ -62,7 +62,7 @@ def test_generate_pl_cms_compose_prod_mode(tmp_path, monkeypatch):
     assert "postgres:16-alpine" in content
     assert "redis:7-alpine" in content
     assert "lh_plcms_plcms-api-1:3001/api" in content
-    assert "http://plcms.link" in content
+    assert "NEXT_PUBLIC_API_BASE_URL: ''" in content
     assert ".linkhosting/pl_cms/web.Dockerfile" in content
 
     assert config["dockerfiles"]["web"].exists()
@@ -253,6 +253,7 @@ def test_proxy_vhost_includes_pl_cms_routes(tmp_path, monkeypatch):
         conf = (tmp_path / "plcms.conf").read_text()
         assert "proxy_pass http://lh_plcms_plcms-api-1:3001;" in conf
         assert "proxy_pass http://lh_plcms_plcms-web-1:3000;" in conf
+        assert "return 302 /install;" in conf
         assert 'proxy_set_header Upgrade $http_upgrade;' in conf
         assert 'proxy_set_header Connection "upgrade";' in conf
     finally:
