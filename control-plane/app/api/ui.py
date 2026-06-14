@@ -721,7 +721,11 @@ def _enqueue_deploy_job(job_record: "DeployJob", site: "Site", db: "Session") ->
         from app.jobs import run_pl_cms_deploy, run_wordpress_deploy
 
         runner = run_wordpress_deploy if site.site_type == SiteType.wordpress else run_pl_cms_deploy
-        rq_job = q.enqueue(runner, job_record.id)
+        rq_job = q.enqueue(
+            runner,
+            job_record.id,
+            job_timeout=settings.deploy_job_timeout_seconds,
+        )
         log.info("Enqueued RQ job %s for DeployJob %d", rq_job.id, job_record.id)
         return rq_job.id
     except Exception as exc:
