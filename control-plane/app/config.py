@@ -36,6 +36,7 @@ class Settings(BaseSettings):
 
     # Redis / RQ
     redis_url: str = "redis://redis:6379/0"
+    deploy_job_timeout_seconds: int = 1800
 
     # Dev mode (skip real Docker/system calls)
     dev_mode: bool = False
