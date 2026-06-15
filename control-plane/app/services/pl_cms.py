@@ -227,6 +227,8 @@ ENV NODE_ENV=production
 
 RUN pnpm -r build
 
+RUN node -e "const fs=require('fs'); const p='packages/shared/package.json'; if (fs.existsSync(p) && fs.existsSync('packages/shared/dist/index.js')) { const pkg=JSON.parse(fs.readFileSync(p,'utf8')); pkg.main='./dist/index.js'; pkg.module='./dist/index.js'; pkg.types='./dist/index.d.ts'; pkg.exports={'.':{types:'./dist/index.d.ts',import:'./dist/index.js',require:'./dist/index.js'}}; fs.writeFileSync(p, JSON.stringify(pkg,null,2)); }"
+
 EXPOSE 3001
 CMD ["pnpm", "--filter", "@pl-cms/api", "start"]
 """
