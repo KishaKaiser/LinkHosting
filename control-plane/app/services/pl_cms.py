@@ -228,7 +228,7 @@ ENV NODE_ENV=production
 RUN pnpm -r build
 
 EXPOSE 3001
-CMD ["sh", "-lc", "pnpm --filter @pl-cms/db migrate:deploy && pnpm --filter @pl-cms/api start"]
+CMD ["pnpm", "--filter", "@pl-cms/api", "start"]
 """
 
 
