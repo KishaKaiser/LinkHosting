@@ -70,6 +70,8 @@ def test_generate_pl_cms_compose_prod_mode(tmp_path, monkeypatch):
     assert "FROM node:22-bookworm-slim" in config["dockerfiles"]["web"].read_text()
     assert "ca-certificates openssl" in config["dockerfiles"]["web"].read_text()
     assert "ca-certificates openssl" in config["dockerfiles"]["api"].read_text()
+    assert "migrate:deploy" not in config["dockerfiles"]["api"].read_text()
+    assert 'CMD ["pnpm", "--filter", "@pl-cms/api", "start"]' in config["dockerfiles"]["api"].read_text()
     assert "corepack prepare pnpm@9.0.0" not in config["dockerfiles"]["web"].read_text()
 
 
