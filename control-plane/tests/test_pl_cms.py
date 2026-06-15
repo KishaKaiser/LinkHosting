@@ -72,6 +72,8 @@ def test_generate_pl_cms_compose_prod_mode(tmp_path, monkeypatch):
     assert "ca-certificates openssl" in config["dockerfiles"]["api"].read_text()
     assert "migrate:deploy" not in config["dockerfiles"]["api"].read_text()
     assert "packages/shared/dist/index.js" in config["dockerfiles"]["api"].read_text()
+    assert "prisma db push --accept-data-loss" in config["dockerfiles"]["api"].read_text()
+    assert "packages/db/prisma/schema.prisma" in config["dockerfiles"]["api"].read_text()
     assert 'CMD ["pnpm", "--filter", "@pl-cms/api", "start"]' in config["dockerfiles"]["api"].read_text()
     assert "corepack prepare pnpm@9.0.0" not in config["dockerfiles"]["web"].read_text()
 

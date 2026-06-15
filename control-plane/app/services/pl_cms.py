@@ -229,6 +229,8 @@ RUN pnpm -r build
 
 RUN node -e "const fs=require('fs'); const p='packages/shared/package.json'; if (fs.existsSync(p) && fs.existsSync('packages/shared/dist/index.js')) { const pkg=JSON.parse(fs.readFileSync(p,'utf8')); pkg.main='./dist/index.js'; pkg.module='./dist/index.js'; pkg.types='./dist/index.d.ts'; pkg.exports={'.':{types:'./dist/index.d.ts',import:'./dist/index.js',require:'./dist/index.js'}}; fs.writeFileSync(p, JSON.stringify(pkg,null,2)); }"
 
+RUN node -e "const fs=require('fs'); const pkgPath='packages/db/package.json'; if (fs.existsSync(pkgPath)) { const pkg=JSON.parse(fs.readFileSync(pkgPath,'utf8')); pkg.scripts=pkg.scripts||{}; pkg.scripts['migrate:deploy']='prisma db push --accept-data-loss --schema=prisma/schema.prisma'; fs.writeFileSync(pkgPath, JSON.stringify(pkg,null,2)); } const installPath='apps/api/dist/install/install.service.js'; if (fs.existsSync(installPath)) { let src=fs.readFileSync(installPath,'utf8'); src=src.replace(/migrate deploy/g, 'db push --accept-data-loss'); src=src.replace(/(['\"])migrate\\1\\s*,\\s*(['\"])deploy\\2/g, \"'db', 'push', '--accept-data-loss'\"); src=src.replace(/path\\.resolve\\(process\\.cwd\\(\\),\\s*(['\"])packages\\/db\\/prisma\\/schema\\.prisma\\1\\)/g, \"path.resolve('/app', 'packages/db/prisma/schema.prisma')\"); fs.writeFileSync(installPath, src); }"
+
 EXPOSE 3001
 CMD ["pnpm", "--filter", "@pl-cms/api", "start"]
 """
