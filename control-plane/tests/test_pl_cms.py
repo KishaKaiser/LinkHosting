@@ -70,6 +70,8 @@ def test_generate_pl_cms_compose_prod_mode(tmp_path, monkeypatch):
     assert "FROM node:22-bookworm-slim" in config["dockerfiles"]["web"].read_text()
     assert "ca-certificates openssl" in config["dockerfiles"]["web"].read_text()
     assert "ca-certificates openssl" in config["dockerfiles"]["api"].read_text()
+    assert "secureCookie" in config["dockerfiles"]["web"].read_text()
+    assert "x-forwarded-proto" in config["dockerfiles"]["web"].read_text()
     assert "migrate:deploy" not in config["dockerfiles"]["api"].read_text()
     assert "packages/shared/dist/index.js" in config["dockerfiles"]["api"].read_text()
     assert "prisma db push --accept-data-loss" in config["dockerfiles"]["api"].read_text()
@@ -258,6 +260,8 @@ def test_proxy_vhost_includes_pl_cms_routes(tmp_path, monkeypatch):
         proxy_module.write_vhost(site, tls=False)
 
         conf = (tmp_path / "plcms.conf").read_text()
+        assert "location = /api/auth/login" in conf
+        assert "location = /api/auth/logout" in conf
         assert "proxy_pass http://lh_plcms_plcms-api-1:3001;" in conf
         assert "proxy_pass http://lh_plcms_plcms-web-1:3000;" in conf
         assert "return 302 /install;" in conf
