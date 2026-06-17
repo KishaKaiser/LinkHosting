@@ -199,6 +199,8 @@ ARG NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 ENV NODE_ENV=production
 
+RUN node -e 'const fs=require("fs"); const p="apps/web/src/app/api/auth/login/route.ts"; if (fs.existsSync(p)) { let src=fs.readFileSync(p,"utf8"); src=src.replace("const isProduction = process.env.NODE_ENV === '\''production'\'';","const forwardedProto = req.headers.get('\''x-forwarded-proto'\'') ?? '\'''\'';\n  const secureCookie = process.env.NODE_ENV === '\''production'\'' && forwardedProto === '\''https'\'';"); src=src.replaceAll("secure: isProduction,", "secure: secureCookie,"); fs.writeFileSync(p, src); }'
+
 RUN pnpm -r build
 
 EXPOSE 3000
