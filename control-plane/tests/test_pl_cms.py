@@ -266,7 +266,7 @@ def test_proxy_vhost_includes_pl_cms_routes(tmp_path, monkeypatch):
         assert "location ^~ /api/proxy/" in conf
         assert "proxy_pass http://lh_plcms_plcms-api-1:3001;" in conf
         assert "proxy_pass http://lh_plcms_plcms-web-1:3000;" in conf
-        assert "return 302 /install;" in conf
+        assert "return 302 /install;" not in conf
         assert 'proxy_set_header Upgrade $http_upgrade;' in conf
         assert 'proxy_set_header Connection "upgrade";' in conf
     finally:
