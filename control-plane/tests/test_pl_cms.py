@@ -262,6 +262,8 @@ def test_proxy_vhost_includes_pl_cms_routes(tmp_path, monkeypatch):
         conf = (tmp_path / "plcms.conf").read_text()
         assert "location = /api/auth/login" in conf
         assert "location = /api/auth/logout" in conf
+        assert "location = /api/auth/refresh" in conf
+        assert "location ^~ /api/proxy/" in conf
         assert "proxy_pass http://lh_plcms_plcms-api-1:3001;" in conf
         assert "proxy_pass http://lh_plcms_plcms-web-1:3000;" in conf
         assert "return 302 /install;" in conf
