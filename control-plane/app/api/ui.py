@@ -983,8 +983,12 @@ def _resolve_linkhosting_config() -> tuple[str, str]:
 def _run_update_command(args: list[str], *, cwd: Path, timeout: int = 120):
     import subprocess
 
+    cmd = args
+    if args and args[0] == "git":
+        cmd = ["git", "-c", f"safe.directory={cwd}", *args[1:]]
+
     return subprocess.run(
-        args,
+        cmd,
         cwd=str(cwd),
         capture_output=True,
         text=True,
