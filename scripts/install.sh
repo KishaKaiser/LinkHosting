@@ -404,6 +404,8 @@ set_env DOMAIN_SUFFIX      "$DOMAIN_SUFFIX"
 set_env PANEL_PORT         "$PANEL_PORT"
 set_env SFTP_PORT          "$SFTP_PORT"
 set_env HOST_LAN_IP        "$HOST_LAN_IP"
+set_env LINKHOSTING_REPO_DIR_HOST "$REPO_ROOT"
+set_env LINKHOSTING_REPO_BRANCH "main"
 
 ok ".env written"
 

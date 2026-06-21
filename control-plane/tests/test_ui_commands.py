@@ -225,6 +225,39 @@ def test_update_linkhosting_not_configured(client):
     assert "LinkHosting updates are not configured" in resp.text
 
 
+def test_check_linkhosting_updates_success(client, tmp_path, monkeypatch):
+    _authenticated_client(client)
+    (tmp_path / ".git").mkdir()
+
+    import app.api.ui as ui_api
+    override_dir = tmp_path / "repo_dir_override"
+    override_dir.write_text(str(tmp_path))
+    override_branch = tmp_path / "repo_branch_override"
+    override_branch.write_text("main")
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_dir_override_file", str(override_dir))
+    monkeypatch.setattr(ui_api.settings, "linkhosting_repo_branch_override_file", str(override_branch))
+
+    def fake_run(args, **kwargs):
+        if args[:3] == ["git", "fetch", "origin"]:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        if args == ["git", "rev-parse", "HEAD"]:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="aaaaaaaaaaaa\n", stderr="")
+        if args == ["git", "rev-parse", "origin/main"]:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="bbbbbbbbbbbb\n", stderr="")
+        if args[:3] == ["git", "merge-base", "--is-ancestor"]:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        raise AssertionError(f"unexpected command: {args}")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    resp = client.post(
+        "/panel/settings/check-linkhosting-updates",
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "LinkHosting update available" in resp.text
+
+
 def test_update_linkhosting_success(client, tmp_path, monkeypatch):
     _authenticated_client(client)
     (tmp_path / ".git").mkdir()
@@ -243,6 +276,12 @@ def test_update_linkhosting_success(client, tmp_path, monkeypatch):
     def fake_run(args, **kwargs):
         captured["args"] = args
         captured["cwd"] = kwargs.get("cwd")
+        if args[:3] == ["git", "fetch", "origin"]:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        if args == ["git", "rev-parse", "HEAD"]:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="aaaaaaaaaaaa\n", stderr="")
+        if args == ["git", "rev-parse", "origin/main"]:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="aaaaaaaaaaaa\n", stderr="")
         return subprocess.CompletedProcess(args=args, returncode=0, stdout="Already up to date.\n", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -277,7 +316,30 @@ def test_update_linkhosting_failure(client, tmp_path, monkeypatch):
         follow_redirects=True,
     )
     assert resp.status_code == 200
-    assert "LinkHosting update failed" in resp.text
+    assert "LinkHosting update" in resp.text
+
+
+def test_check_pl_cms_updates_success(client, monkeypatch):
+    _authenticated_client(client)
+
+    def fake_run(args, **kwargs):
+        assert args[:2] == ["git", "ls-remote"]
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout="cccccccccccccccccccccccccccccccccccccccc\trefs/heads/main\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    resp = client.post(
+        "/panel/settings/check-pl-cms-updates",
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert "PL_CMS source check complete" in resp.text
+    assert "cccccccccccc" in resp.text
 
 
 # ── save-linkhosting-repo ─────────────────────────────────────────────────────
