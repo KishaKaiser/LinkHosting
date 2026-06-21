@@ -124,8 +124,13 @@ services:
       HOST_LAN_IP:         ${HOST_LAN_IP:-}
       DNS_HOSTS_FILE:      /data/dns/hosts
       DNS_CONTAINER_NAME:  lh-dns
+      LINKHOSTING_REPO_DIR: /opt/linkhosting
+      LINKHOSTING_REPO_BRANCH: ${LINKHOSTING_REPO_BRANCH:-main}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: ${LINKHOSTING_REPO_DIR_HOST:-.}
+        target: /opt/linkhosting
       - type: bind
         source: ${SITES_BASE_DIR_HOST:-/srv/linkhosting/sites}
         target: /srv/linkhosting/sites

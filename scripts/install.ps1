@@ -170,6 +170,8 @@ Set-EnvValue "SESSION_SECRET_KEY" $SessionSecretKey $EnvFile
 Set-EnvValue "DOMAIN_SUFFIX"      $DomainSuffix     $EnvFile
 Set-EnvValue "PANEL_PORT"         $PanelPort        $EnvFile
 Set-EnvValue "SFTP_PORT"          $SftpPort         $EnvFile
+Set-EnvValue "LINKHOSTING_REPO_DIR_HOST" $RepoRoot  $EnvFile
+Set-EnvValue "LINKHOSTING_REPO_BRANCH"   "main"     $EnvFile
 
 Write-Ok ".env written"
 

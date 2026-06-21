@@ -934,6 +934,85 @@ def _resolve_linkhosting_config() -> tuple[str, str]:
     return repo_dir, repo_branch
 
 
+def _run_update_command(args: list[str], *, cwd: Path, timeout: int = 120):
+    import subprocess
+
+    return subprocess.run(
+        args,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _resolve_update_repo() -> tuple[Path, str]:
+    repo_dir_raw, repo_branch = _resolve_linkhosting_config()
+
+    if not repo_dir_raw:
+        raise ValueError(
+            "LinkHosting updates are not configured. The installer normally sets this automatically; "
+            "otherwise set the local checkout path in Settings."
+        )
+
+    try:
+        safe_dir = _validate_repo_dir(str(Path(repo_dir_raw).expanduser()))
+    except ValueError as exc:
+        raise ValueError(
+            "LinkHosting updates are not configured. Set the local checkout path in Settings."
+        ) from exc
+
+    repo_dir = Path(safe_dir)
+    if not (repo_dir / ".git").exists():
+        raise ValueError(
+            f"The configured LinkHosting checkout does not contain a .git directory: {repo_dir}"
+        )
+
+    if not _BRANCH_RE.match(repo_branch):
+        repo_branch = "main"
+
+    return repo_dir, repo_branch
+
+
+def _check_linkhosting_update_status(repo_dir: Path, repo_branch: str) -> dict[str, str | bool]:
+    fetch = _run_update_command(["git", "fetch", "origin", repo_branch], cwd=repo_dir, timeout=180)
+    if fetch.returncode != 0:
+        raise RuntimeError((fetch.stdout + fetch.stderr).strip() or "git fetch failed")
+
+    local = _run_update_command(["git", "rev-parse", "HEAD"], cwd=repo_dir, timeout=30)
+    remote = _run_update_command(["git", "rev-parse", f"origin/{repo_branch}"], cwd=repo_dir, timeout=30)
+    if local.returncode != 0 or remote.returncode != 0:
+        raise RuntimeError(((local.stdout + local.stderr + remote.stdout + remote.stderr).strip()) or "Could not read Git revisions")
+
+    local_sha = local.stdout.strip()
+    remote_sha = remote.stdout.strip()
+    if local_sha == remote_sha:
+        return {
+            "behind": False,
+            "fast_forward": True,
+            "local": local_sha,
+            "remote": remote_sha,
+            "branch": repo_branch,
+        }
+
+    ancestor = _run_update_command(
+        ["git", "merge-base", "--is-ancestor", "HEAD", f"origin/{repo_branch}"],
+        cwd=repo_dir,
+        timeout=30,
+    )
+    return {
+        "behind": True,
+        "fast_forward": ancestor.returncode == 0,
+        "local": local_sha,
+        "remote": remote_sha,
+        "branch": repo_branch,
+    }
+
+
+def _short_sha(value: str) -> str:
+    return value[:12] if value else "unknown"
+
+
 @router.post("/settings/linkhosting-repo")
 async def save_linkhosting_repo(
     request: Request,
@@ -997,66 +1076,86 @@ async def save_linkhosting_repo(
 
 # ── LinkHosting app update ────────────────────────────────────────────────────
 
+@router.post("/settings/check-linkhosting-updates")
+async def check_linkhosting_updates_post(request: Request):
+    """Check whether the configured LinkHosting checkout is behind GitHub."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    try:
+        repo_dir, repo_branch = _resolve_update_repo()
+        status = _check_linkhosting_update_status(repo_dir, repo_branch)
+        if status["behind"]:
+            if status["fast_forward"]:
+                request.session["flash_message"] = (
+                    "LinkHosting update available.\n\n"
+                    f"Branch: {status['branch']}\n"
+                    f"Current: {_short_sha(str(status['local']))}\n"
+                    f"GitHub:  {_short_sha(str(status['remote']))}\n\n"
+                    "Use Update LinkHosting to pull and restart the stack."
+                )
+            else:
+                request.session["flash_error"] = (
+                    "LinkHosting has local changes or diverged commits and cannot be updated safely from the panel.\n\n"
+                    f"Current: {_short_sha(str(status['local']))}\n"
+                    f"GitHub:  {_short_sha(str(status['remote']))}\n\n"
+                    "Update manually over SSH so you can review the changes."
+                )
+        else:
+            request.session["flash_message"] = (
+                f"LinkHosting is already up to date on {status['branch']} "
+                f"({_short_sha(str(status['local']))})."
+            )
+    except Exception as exc:
+        log.exception("LinkHosting update check failed")
+        request.session["flash_error"] = f"Could not check LinkHosting updates: {exc}"
+
+    return RedirectResponse("/panel/settings", status_code=302)
+
+
 @router.post("/settings/update-linkhosting")
-async def update_linkhosting_post(request: Request):
+async def update_linkhosting_post(
+    request: Request,
+    rebuild_stack: str = Form("0"),
+):
     """Pull the latest LinkHosting code from the configured Git checkout."""
     redirect = _require_login(request)
     if redirect:
         return redirect
 
-    import pathlib, os
-
-    # Resolve the configured repo dir and branch without reading from in-memory settings
-    # that may carry taint from a prior form POST in the same process.
-    # Priority: override file (written by the settings UI) → LINKHOSTING_REPO_DIR env var.
-    repo_dir_raw, repo_branch = _resolve_linkhosting_config()
-
-    if not repo_dir_raw:
-        request.session["flash_error"] = (
-            "LinkHosting updates are not configured. Set LINKHOSTING_REPO_DIR to "
-            "the local LinkHosting Git checkout that should track origin/main."
-        )
-        return RedirectResponse("/panel/settings", status_code=302)
-
-    # Validate and expand the path before using it as a filesystem path.
-    try:
-        safe_dir = _validate_repo_dir(str(Path(repo_dir_raw).expanduser()))
-    except ValueError:
-        request.session["flash_error"] = (
-            "LinkHosting updates are not configured. Set LINKHOSTING_REPO_DIR to "
-            "the local LinkHosting Git checkout that should track origin/main."
-        )
-        return RedirectResponse("/panel/settings", status_code=302)
-
-    repo_dir = Path(safe_dir)
-    if not (repo_dir / ".git").exists():
-        request.session["flash_error"] = (
-            "LinkHosting updates are not configured. Set LINKHOSTING_REPO_DIR to "
-            "the local LinkHosting Git checkout that should track origin/main."
-        )
-        return RedirectResponse("/panel/settings", status_code=302)
-
-    # Validate branch name before passing to subprocess.
-    if not _BRANCH_RE.match(repo_branch):
-        repo_branch = "main"
-
     import subprocess
 
     try:
-        result = subprocess.run(
+        repo_dir, repo_branch = _resolve_update_repo()
+        status = _check_linkhosting_update_status(repo_dir, repo_branch)
+        if status["behind"] and not status["fast_forward"]:
+            request.session["flash_error"] = (
+                "LinkHosting has local changes or diverged commits and cannot be updated safely from the panel. "
+                "Update manually over SSH so you can review the changes."
+            )
+            return RedirectResponse("/panel/settings", status_code=302)
+
+        result = _run_update_command(
             ["git", "pull", "--ff-only", "origin", repo_branch],
             cwd=str(repo_dir),
-            capture_output=True,
-            text=True,
             timeout=180,
         )
         output = (result.stdout + result.stderr).strip()
         if result.returncode == 0:
-            request.session["flash_message"] = (
-                f"LinkHosting updated from GitHub {repo_branch}. "
-                "Rebuild/restart the LinkHosting stack and run migrations if needed."
-                + (f"\n\n{output}" if output else "")
-            )
+            message = f"LinkHosting updated from GitHub {repo_branch}."
+            if rebuild_stack == "1":
+                subprocess.Popen(
+                    ["docker", "compose", "up", "-d", "--build", "--force-recreate", "panel", "worker", "proxy"],
+                    cwd=str(repo_dir),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                message += " Rebuild/restart has started in the background. Wait about a minute, then refresh the panel."
+            else:
+                message += " Rebuild/restart the LinkHosting stack and run migrations if needed."
+            request.session["flash_message"] = message + (f"\n\n{output}" if output else "")
         else:
             request.session["flash_error"] = (
                 f"LinkHosting update failed (exit {result.returncode})."
@@ -1067,6 +1166,58 @@ async def update_linkhosting_post(request: Request):
     except Exception as exc:
         log.exception("LinkHosting update error")
         request.session["flash_error"] = f"LinkHosting update error: {exc}"
+
+    return RedirectResponse("/panel/settings", status_code=302)
+
+
+# ── PL_CMS source update check ────────────────────────────────────────────────
+
+@router.post("/settings/check-pl-cms-updates")
+async def check_pl_cms_updates_post(request: Request):
+    """Check the latest PL_CMS source commit on GitHub for future deployments."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    import os
+    import subprocess
+
+    try:
+        from app.services.github import _inject_token, _validate_github_url
+        from app.services.pl_cms import default_pl_cms_repo_url
+
+        repo_url = _validate_github_url(default_pl_cms_repo_url())
+        lookup_url = _inject_token(repo_url, settings.github_token) if settings.github_token.strip() else repo_url
+        result = subprocess.run(
+            ["git", "ls-remote", lookup_url, "refs/heads/main"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+        output = (result.stdout + result.stderr).strip()
+        if settings.github_token.strip():
+            output = output.replace(settings.github_token, "***")
+
+        if result.returncode != 0:
+            request.session["flash_error"] = (
+                f"Could not check PL_CMS on GitHub (exit {result.returncode})."
+                + (f"\n\n{output}" if output else "")
+            )
+        else:
+            latest = (result.stdout.strip().split() or [""])[0]
+            request.session["flash_message"] = (
+                "PL_CMS source check complete.\n\n"
+                f"Repository: {repo_url}\n"
+                f"Branch: main\n"
+                f"GitHub latest: {_short_sha(latest)}\n\n"
+                "Fresh PL_CMS deployments clone from GitHub, so new installs will use this latest main branch code."
+            )
+    except subprocess.TimeoutExpired:
+        request.session["flash_error"] = "PL_CMS update check timed out after 60 seconds."
+    except Exception as exc:
+        log.exception("PL_CMS update check failed")
+        request.session["flash_error"] = f"Could not check PL_CMS updates: {exc}"
 
     return RedirectResponse("/panel/settings", status_code=302)
 

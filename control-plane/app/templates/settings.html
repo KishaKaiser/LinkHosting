@@ -10,11 +10,11 @@
 <div class="alert alert-error" style="white-space: pre-wrap;">{{ error }}</div>
 {% endif %}
 
-<div class="card" style="max-width: 480px;">
+<div class="card" style="max-width: 640px;">
     <h2>Update LinkHosting</h2>
     <p class="text-muted" style="margin-bottom: 1rem;">
-        Pull the latest LinkHosting code from a local Git checkout. This updates the
-        LinkHosting app itself, not individual site repositories.
+        Check GitHub for LinkHosting changes, then pull the latest code and restart the
+        panel stack without reinstalling the whole app.
     </p>
 
     <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">Configure Checkout</h3>
@@ -25,7 +25,7 @@
                    value="{{ linkhosting_repo_dir }}"
                    placeholder="/srv/linkhosting"
                    autocomplete="off" />
-            <p class="text-muted mt-1">Absolute path to the LinkHosting Git checkout on the host. Leave blank to disable panel updates.</p>
+            <p class="text-muted mt-1">Absolute path to the LinkHosting Git checkout visible to the panel. Fresh installs configure this automatically.</p>
         </div>
         <div class="form-group">
             <label for="repo_branch">Branch</label>
@@ -44,14 +44,31 @@
         Configured checkout: <code>{{ linkhosting_repo_dir }}</code>
         (branch: <code>{{ linkhosting_repo_branch }}</code>)
     </p>
-    <form method="post" action="/panel/settings/update-linkhosting">
-        <button type="submit" class="btn btn-primary">⬇ Update LinkHosting</button>
-    </form>
+    <div class="flex" style="gap:0.75rem; flex-wrap:wrap;">
+        <form method="post" action="/panel/settings/check-linkhosting-updates">
+            <button type="submit" class="btn btn-secondary">Check for Updates</button>
+        </form>
+        <form method="post" action="/panel/settings/update-linkhosting">
+            <input type="hidden" name="rebuild_stack" value="1" />
+            <button type="submit" class="btn btn-primary">Update and Restart LinkHosting</button>
+        </form>
+    </div>
     {% else %}
     <p class="text-muted" style="margin-bottom: 0.75rem;">
         No checkout configured — save a path above to enable panel updates.
     </p>
     {% endif %}
+</div>
+
+<div class="card" style="max-width: 640px;">
+    <h2>PL_CMS Source</h2>
+    <p class="text-muted" style="margin-bottom: 1rem;">
+        Fresh PL_CMS deployments clone the latest code from the PL_CMS GitHub main branch.
+        Use this check to confirm GitHub is reachable and see the commit new installs will use.
+    </p>
+    <form method="post" action="/panel/settings/check-pl-cms-updates">
+        <button type="submit" class="btn btn-secondary">Check PL_CMS Source</button>
+    </form>
 </div>
 
 <div class="card" style="max-width: 480px;">
