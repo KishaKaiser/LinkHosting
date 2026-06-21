@@ -504,6 +504,31 @@ def deploy_pl_cms(
     return stdout, stderr
 
 
+def update_pl_cms_source(
+    site_name: str,
+    domain: str,
+    env_vars_json: str | None = None,
+    *,
+    repo_branch: str | None = None,
+    tls: bool = False,
+) -> tuple[str, str]:
+    """Pull the latest PL_CMS source and rebuild containers without removing data volumes."""
+    from app.services.docker_api import run_compose_up
+    from app.services.github import pull_repo
+
+    if settings.dev_mode:
+        log.info("[DEV] Would update PL_CMS source for site %s", site_name)
+        return f"[DEV] PL_CMS source update for {site_name}", ""
+
+    site_dir = Path(settings.sites_base_dir) / site_name
+    _validate_build_context(site_dir)
+    pull_repo(site_dir, branch=repo_branch)
+    compose_file, _ = generate_pl_cms_compose(site_name, domain, env_vars_json, tls=tls)
+    stdout, stderr = run_compose_up(compose_file, build=True)
+    log.info("Updated PL_CMS site %s from source and rebuilt containers", site_name)
+    return stdout, stderr
+
+
 def stop_pl_cms(site_name: str) -> tuple[str, str]:
     """Stop and remove PL_CMS deployment containers for *site_name*."""
     if settings.dev_mode:

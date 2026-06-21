@@ -236,6 +236,43 @@ def test_deploy_pl_cms_prod_mode_preserves_non_template_site_dir(tmp_path, monke
         importlib.reload(pl_cms_module)
 
 
+def test_update_pl_cms_source_pulls_and_rebuilds(tmp_path, monkeypatch):
+    monkeypatch.setenv("SITES_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("DEV_MODE", "false")
+
+    import app.config as config_module
+    original_settings = config_module.settings
+    config_module.settings = config_module.Settings()
+
+    from app.services import pl_cms as pl_cms_module
+    importlib.reload(pl_cms_module)
+
+    try:
+        site_dir = tmp_path / "plcms"
+        _write_pl_cms_build_context(site_dir)
+        (site_dir / ".git").mkdir()
+
+        with (
+            patch("app.services.github.pull_repo") as mock_pull,
+            patch("app.services.docker_api.run_compose_up") as mock_run,
+        ):
+            mock_run.return_value = ("ok", "")
+            stdout, stderr = pl_cms_module.update_pl_cms_source(
+                "plcms",
+                "plcms.link",
+                repo_branch="main",
+            )
+
+        assert stdout == "ok"
+        assert stderr == ""
+        mock_pull.assert_called_once_with(site_dir, branch="main")
+        mock_run.assert_called_once()
+        assert mock_run.call_args.kwargs["build"] is True
+    finally:
+        config_module.settings = original_settings
+        importlib.reload(pl_cms_module)
+
+
 def test_proxy_vhost_includes_pl_cms_routes(tmp_path, monkeypatch):
     monkeypatch.setenv("PROXY_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("DEV_MODE", "false")

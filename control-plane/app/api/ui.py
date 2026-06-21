@@ -739,6 +739,52 @@ def _enqueue_deploy_job(job_record: "DeployJob", site: "Site", db: "Session") ->
         return None
 
 
+# ── PL_CMS source update action ───────────────────────────────────────────────
+
+@router.post("/sites/{site_name}/update-pl-cms")
+async def update_pl_cms_site_ui(request: Request, site_name: str, db: Session = Depends(get_db)):
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+    if site.site_type != SiteType.pl_cms:
+        request.session["flash_error"] = "PL_CMS updates are only available for PL_CMS sites."
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    from app.services.pl_cms import get_pl_cms_container_name, update_pl_cms_source
+    from app.services.proxy import reload_proxy, write_vhost
+
+    try:
+        stdout, stderr = update_pl_cms_source(
+            site.name,
+            site.domain,
+            site.env_vars,
+            repo_branch=site.git_branch,
+            tls=False,
+        )
+        site.container_id = get_pl_cms_container_name(site.name, "web")
+        site.status = SiteStatus.running
+        db.commit()
+        write_vhost(site, tls=False)
+        reload_proxy()
+        request.session["flash_message"] = (
+            "PL_CMS updated from GitHub and rebuilt without removing database volumes."
+            + (f"\n\n{stdout}" if stdout else "")
+            + (f"\n\n{stderr}" if stderr else "")
+        )
+    except Exception as exc:
+        db.rollback()
+        site.status = SiteStatus.error
+        db.commit()
+        log.exception("UI: PL_CMS update failed for %s", site_name)
+        request.session["flash_error"] = f"PL_CMS update failed: {exc}"
+
+    return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+
 # ── Stop action ───────────────────────────────────────────────────────────────
 
 @router.post("/sites/{site_name}/stop")
