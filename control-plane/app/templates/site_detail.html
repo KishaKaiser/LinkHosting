@@ -46,6 +46,10 @@
             <button type="submit" class="btn btn-success">🔒 Issue SSL Certificate</button>
         </form>
         {% if site.site_type.value == 'pl_cms' %}
+        <form method="post" action="/panel/sites/{{ site.name }}/update-pl-cms"
+              onsubmit="return confirm('Update PL_CMS source and rebuild this site? Database volumes will be kept.')">
+            <button type="submit" class="btn btn-primary">Update PL_CMS</button>
+        </form>
         <a href="http://{{ site.domain }}/install" class="btn btn-success" target="_blank" rel="noopener">Open PL_CMS Installer</a>
         {% endif %}
         <a href="/panel/sites/{{ site.name }}/files" class="btn btn-secondary">🗂 File Manager</a>
@@ -57,7 +61,7 @@
     {% if site.site_type.value == 'wordpress' %}
     <p class="text-muted mt-1">WordPress sites are deployed via Docker Compose. Deploy runs in the background — check the Jobs section below.</p>
     {% elif site.site_type.value == 'pl_cms' %}
-    <p class="text-muted mt-1">PL_CMS sites are deployed via a generated Docker Compose stack (web, api, postgres, redis). After the first deploy, open <code>http://{{ site.domain }}/install</code> to create the admin account.</p>
+    <p class="text-muted mt-1">PL_CMS sites are deployed via a generated Docker Compose stack (web, api, postgres, redis). Update PL_CMS pulls the latest source and rebuilds web/api while keeping database volumes. After the first deploy, open <code>http://{{ site.domain }}/install</code> to create the admin account.</p>
     {% endif %}
     <p class="text-muted mt-1">
         <strong>SSL:</strong> Issues a certificate from the internal CA for <code>{{ site.domain }}</code>.

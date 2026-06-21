@@ -23,7 +23,7 @@ def _client() -> docker.DockerClient:
     return docker.DockerClient(base_url=settings.docker_socket)
 
 
-def run_compose_up(compose_file: Path) -> tuple[str, str]:
+def run_compose_up(compose_file: Path, *, build: bool = False) -> tuple[str, str]:
     """Bring up all services defined in *compose_file* with ``docker compose up -d``.
 
     Both WordPress and PL_CMS deployments share this single execution path so
@@ -31,9 +31,13 @@ def run_compose_up(compose_file: Path) -> tuple[str, str]:
 
     Returns ``(stdout_msg, stderr_msg)``.  Raises ``RuntimeError`` on failure.
     """
+    cmd = ["docker", "compose", "-f", str(compose_file), "up", "-d"]
+    if build:
+        cmd.append("--build")
+
     try:
         subprocess.run(
-            ["docker", "compose", "-f", str(compose_file), "up", "-d"],
+            cmd,
             check=True,
             capture_output=True,
             text=True,

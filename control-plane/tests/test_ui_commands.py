@@ -72,6 +72,17 @@ def test_web_create_pl_cms_site_records_default_repo(client):
     assert site_resp.json()["git_repo"] == "https://github.com/KishaKaiser/PL_CMS.git"
 
 
+def test_pl_cms_site_page_shows_update_button(client):
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "panel-plcms-update", "site_type": "pl_cms"})
+
+    resp = client.get("/panel/sites/panel-plcms-update")
+
+    assert resp.status_code == 200
+    assert "/panel/sites/panel-plcms-update/update-pl-cms" in resp.text
+    assert "Update PL_CMS" in resp.text
+
+
 def test_run_migrations_failure(client, monkeypatch):
     """Failed migration should flash an error message."""
     _authenticated_client(client)
