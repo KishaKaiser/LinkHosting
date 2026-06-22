@@ -234,7 +234,7 @@ RUN node -e "const fs=require('fs'); const p='packages/shared/package.json'; if 
 RUN node -e 'const fs=require("fs"); const q=String.fromCharCode(39); const pkgPath="packages/db/package.json"; if (fs.existsSync(pkgPath)) { const pkg=JSON.parse(fs.readFileSync(pkgPath,"utf8")); pkg.scripts=pkg.scripts||{}; pkg.scripts["migrate:deploy"]="prisma db push --accept-data-loss --schema=prisma/schema.prisma"; fs.writeFileSync(pkgPath, JSON.stringify(pkg,null,2)); } const installPath="apps/api/dist/install/install.service.js"; if (fs.existsSync(installPath)) { let src=fs.readFileSync(installPath,"utf8"); src=src.split("migrate deploy").join("db push --accept-data-loss"); src=src.split(q+"migrate"+q+", "+q+"deploy"+q).join(q+"db"+q+", "+q+"push"+q+", "+q+"--accept-data-loss"+q); src=src.split("path.resolve(process.cwd(), "+q+"packages/db/prisma/schema.prisma"+q+")").join("path.resolve("+q+"/app"+q+", "+q+"packages/db/prisma/schema.prisma"+q+")"); fs.writeFileSync(installPath, src); }'
 
 EXPOSE 3001
-CMD ["pnpm", "--filter", "@pl-cms/api", "start"]
+CMD ["sh", "-c", "pnpm --filter @pl-cms/db migrate:deploy && node apps/api/dist/main"]
 """
 
 
@@ -402,6 +402,7 @@ def generate_pl_cms_compose(
                 "image": config["api_image"],
                 "restart": "unless-stopped",
                 "environment": config["api_env"],
+                "volumes": [f"{site_name}-media-data:/app/storage/media"],
                 "depends_on": {
                     "postgres": {"condition": "service_healthy"},
                     "redis": {"condition": "service_healthy"},
@@ -450,6 +451,7 @@ def generate_pl_cms_compose(
         "volumes": {
             f"{site_name}-postgres-data": None,
             f"{site_name}-redis-data": None,
+            f"{site_name}-media-data": None,
         },
         "networks": {
             "internal": {"driver": "bridge"},

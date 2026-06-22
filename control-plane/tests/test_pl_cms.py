@@ -64,6 +64,8 @@ def test_generate_pl_cms_compose_prod_mode(tmp_path, monkeypatch):
     assert "lh_plcms_plcms-api-1:3001/api" in content
     assert "NEXT_PUBLIC_API_BASE_URL: ''" in content
     assert ".linkhosting/pl_cms/web.Dockerfile" in content
+    assert "plcms-media-data:/app/storage/media" in content
+    assert "plcms-media-data:" in content
 
     assert config["dockerfiles"]["web"].exists()
     assert config["dockerfiles"]["api"].exists()
@@ -76,7 +78,7 @@ def test_generate_pl_cms_compose_prod_mode(tmp_path, monkeypatch):
     assert "packages/shared/dist/index.js" in config["dockerfiles"]["api"].read_text()
     assert "prisma db push --accept-data-loss" in config["dockerfiles"]["api"].read_text()
     assert "packages/db/prisma/schema.prisma" in config["dockerfiles"]["api"].read_text()
-    assert 'CMD ["pnpm", "--filter", "@pl-cms/api", "start"]' in config["dockerfiles"]["api"].read_text()
+    assert "pnpm --filter @pl-cms/db migrate:deploy && node apps/api/dist/main" in config["dockerfiles"]["api"].read_text()
     assert "corepack prepare pnpm@9.0.0" not in config["dockerfiles"]["web"].read_text()
 
 
