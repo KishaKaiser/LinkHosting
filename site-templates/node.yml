@@ -3,7 +3,7 @@
 # Variables: SITE_NAME, SITE_DOMAIN, NETWORK, NODE_VERSION (default 20), PORT (default 3000)
 services:
   site-{{ SITE_NAME }}:
-    image: node:{{ NODE_VERSION | default('20') }}-alpine
+    image: node:{{ NODE_VERSION | default('20') }}
     container_name: site-{{ SITE_NAME }}
     restart: unless-stopped
     working_dir: /app

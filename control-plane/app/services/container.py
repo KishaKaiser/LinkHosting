@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 DEFAULT_IMAGES: dict[SiteType, str] = {
     SiteType.static: "nginx:alpine",
     SiteType.php: "php:8.3-apache",
-    SiteType.node: "node:20-alpine",
+    SiteType.node: "node:20-bookworm",
     SiteType.python: "python:3.12-slim",
     SiteType.proxy: "nginx:alpine",
 }

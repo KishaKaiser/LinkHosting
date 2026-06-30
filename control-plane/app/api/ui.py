@@ -1874,8 +1874,19 @@ def _wait_for_running(container, timeout: int = 30, interval: float = 2.0) -> No
     )
 
 
-def _exec_in_container(container_id: str, cmd: list[str], workdir: str = _CONTAINER_WORKDIR) -> tuple[int, str]:
-    """Run *cmd* inside *container_id* and return (exit_code, combined_output)."""
+def _exec_in_container(
+    container_id: str,
+    cmd: list[str],
+    workdir: str = _CONTAINER_WORKDIR,
+    environment: dict[str, str] | None = None,
+) -> tuple[int, str]:
+    """Run *cmd* inside *container_id* and return (exit_code, combined_output).
+
+    *environment* is merged on top of whatever the container already has so
+    that env vars saved via the panel (but not yet baked into the container
+    at creation time) are visible to one-off commands like `npx prisma
+    migrate deploy` without requiring a full redeploy.
+    """
     import docker
     client = docker.from_env()
     container = client.containers.get(container_id)
@@ -1883,6 +1894,7 @@ def _exec_in_container(container_id: str, cmd: list[str], workdir: str = _CONTAI
     exit_code, output = container.exec_run(
         cmd,
         workdir=workdir,
+        environment=environment or None,
         demux=False,
         stream=False,
     )
@@ -1974,8 +1986,9 @@ async def run_command_ui(
         return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
     workdir = _resolve_workdir(site.build_dir)
+    env_vars = _load_site_env_vars(site)
     try:
-        exit_code, output = _exec_in_container(site.container_id, cmd, workdir=workdir)
+        exit_code, output = _exec_in_container(site.container_id, cmd, workdir=workdir, environment=env_vars)
         display_cmd = " ".join(cmd)
         output_for_flash = _truncate_command_output(output)
         if exit_code == 0:
