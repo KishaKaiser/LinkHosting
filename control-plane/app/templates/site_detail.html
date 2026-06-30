@@ -292,6 +292,13 @@
         compile TypeScript, run database migrations).
         The site must be deployed before commands can be executed.
     </p>
+    <p class="text-muted" style="margin-bottom:0.75rem;">
+        To make deploy start a Node app automatically, save these in Environment Variables:
+        <code>LINKHOSTING_INSTALL_COMMAND</code>,
+        <code>LINKHOSTING_BUILD_COMMAND</code>,
+        <code>LINKHOSTING_START_COMMAND</code>, and optionally
+        <code>LINKHOSTING_UPSTREAM_PORT</code>. For apps in a subfolder, use the Build / root directory below.
+    </p>
 
     <form method="post" action="/panel/sites/{{ site.name }}/set-build-dir"
           style="display:flex; flex-direction:column; gap:0.5rem; max-width:480px; margin-bottom:1.25rem;">

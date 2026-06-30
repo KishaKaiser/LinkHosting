@@ -1,5 +1,6 @@
 """Unit tests for provisioning service logic (no I/O)."""
 import os
+import json
 import pytest
 
 os.environ["DEV_MODE"] = "true"
@@ -102,6 +103,62 @@ def test_provision_node_container_uses_keepalive_command(tmp_path, monkeypatch):
     )
 
 
+def test_provision_node_container_uses_configured_deploy_command(tmp_path, monkeypatch):
+    import importlib
+    from unittest.mock import MagicMock, patch
+
+    monkeypatch.setenv("DEV_MODE", "false")
+    monkeypatch.setenv("SITES_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("CERTS_BASE_DIR", str(tmp_path / "certs"))
+
+    import app.config as config_module
+    original_settings = config_module.settings
+    config_module.settings = config_module.Settings()
+
+    import app.services.container as container_module
+    importlib.reload(container_module)
+
+    from app.models import Site, SiteType, SiteStatus
+
+    site = Site(
+        id=4,
+        name="nodeapp",
+        domain="nodeapp.local",
+        site_type=SiteType.node,
+        status=SiteStatus.pending,
+        build_dir="backend",
+        env_vars=json.dumps(
+            {
+                "LINKHOSTING_INSTALL_COMMAND": "npm ci",
+                "LINKHOSTING_BUILD_COMMAND": "npm run build",
+                "LINKHOSTING_START_COMMAND": "npm run start",
+                "LINKHOSTING_UPSTREAM_PORT": "4000",
+            }
+        ),
+    )
+
+    mock_container = MagicMock()
+    mock_container.id = "node123"
+    mock_client = MagicMock()
+    mock_client.containers.run.return_value = mock_container
+
+    try:
+        with patch.object(container_module, "_docker_client", return_value=mock_client):
+            with patch.object(container_module, "_ensure_network"):
+                container_module.provision_container(site)
+    finally:
+        config_module.settings = original_settings
+        importlib.reload(container_module)
+
+    _, kwargs = mock_client.containers.run.call_args
+    assert kwargs["environment"]["PORT"] == "4000"
+    assert kwargs["command"] == [
+        "sh",
+        "-lc",
+        "cd /var/www/html/backend && npm ci && npm run build && npm run start",
+    ]
+
+
 def test_provision_static_container_no_keepalive_command(tmp_path, monkeypatch):
     """Static (nginx) containers must NOT override the default command."""
     import importlib
@@ -201,6 +258,29 @@ def test_proxy_write_vhost_includes_client_max_body_size(tmp_path, monkeypatch):
     conf_path = proxy_module.write_vhost(site, tls=False)
     assert conf_path.exists()
     assert "client_max_body_size 64M;" in conf_path.read_text()
+
+
+def test_proxy_write_vhost_uses_node_upstream_port(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROXY_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("DEV_MODE", "false")
+    import importlib
+    import app.config as config_module
+    config_module.settings = config_module.Settings()
+
+    from app.services import proxy as proxy_module
+    importlib.reload(proxy_module)
+
+    from app.models import Site, SiteType, SiteStatus
+    site = Site(
+        id=2,
+        name="nodeport",
+        domain="nodeport.local",
+        site_type=SiteType.node,
+        status=SiteStatus.pending,
+        env_vars='{"LINKHOSTING_UPSTREAM_PORT":"4173"}',
+    )
+    conf_path = proxy_module.write_vhost(site, tls=False)
+    assert "proxy_pass http://site-nodeport:4173;" in conf_path.read_text()
 
 
 def test_cert_dev_mode(tmp_path):
