@@ -83,6 +83,28 @@ def test_pl_cms_site_page_shows_update_button(client):
     assert "Update PL_CMS" in resp.text
 
 
+def test_panel_deploy_node_site_adds_dns_record(client, monkeypatch):
+    """Panel deploy should publish DNS records for direct container site types."""
+    _authenticated_client(client)
+    _create_site_via_api(client, "panel-node-dns", site_type="node")
+
+    added_domains = []
+
+    def fake_add_dns_record(domain):
+        added_domains.append(domain)
+
+    import app.services.dns as dns_module
+    monkeypatch.setattr(dns_module, "add_dns_record", fake_add_dns_record)
+
+    resp = client.post(
+        "/panel/sites/panel-node-dns/deploy",
+        follow_redirects=True,
+    )
+
+    assert resp.status_code == 200
+    assert "panel-node-dns.link" in added_domains
+
+
 def test_run_migrations_failure(client, monkeypatch):
     """Failed migration should flash an error message."""
     _authenticated_client(client)

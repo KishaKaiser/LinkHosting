@@ -700,6 +700,8 @@ async def deploy_site_ui(request: Request, site_name: str, db: Session = Depends
             db.commit()
             write_vhost(site, tls=False)
             reload_proxy()
+            from app.services.dns import add_dns_record
+            add_dns_record(site.domain)
             request.session["flash_message"] = "Site deployed successfully."
         except Exception as exc:
             site.status = SiteStatus.error
