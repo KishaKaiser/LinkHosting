@@ -352,6 +352,47 @@ def test_update_linkhosting_failure(client, tmp_path, monkeypatch):
     assert "LinkHosting update" in resp.text
 
 
+def test_clear_cache_unauthenticated(client):
+    resp = client.post(
+        "/panel/settings/clear-cache",
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "/panel/login" in resp.headers["location"]
+
+
+def test_clear_cache_success(client, monkeypatch):
+    _authenticated_client(client)
+
+    import app.api.ui as ui_api
+    monkeypatch.setattr(ui_api.settings, "dev_mode", False)
+
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout="Total reclaimed space: 12MB\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    resp = client.post(
+        "/panel/settings/clear-cache",
+        follow_redirects=True,
+    )
+
+    assert resp.status_code == 200
+    assert "Docker build cache cleared" in resp.text
+    assert calls == [
+        ["docker", "builder", "prune", "-f"],
+        ["docker", "image", "prune", "-f"],
+    ]
+
+
 def test_check_pl_cms_updates_success(client, monkeypatch):
     _authenticated_client(client)
 

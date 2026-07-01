@@ -1222,6 +1222,59 @@ async def update_linkhosting_post(
     return RedirectResponse("/panel/settings", status_code=302)
 
 
+@router.post("/settings/clear-cache")
+async def clear_cache_post(request: Request):
+    """Clear Docker build cache without removing site data volumes."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    import subprocess
+
+    if settings.dev_mode:
+        request.session["flash_message"] = "[DEV] Docker build cache would be cleared."
+        return RedirectResponse("/panel/settings", status_code=302)
+
+    commands = [
+        ["docker", "builder", "prune", "-f"],
+        ["docker", "image", "prune", "-f"],
+    ]
+    outputs: list[str] = []
+
+    try:
+        for cmd in commands:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            output = (result.stdout + result.stderr).strip()
+            label = " ".join(cmd)
+            if result.returncode != 0:
+                request.session["flash_error"] = (
+                    f"Cache cleanup failed while running `{label}` "
+                    f"(exit {result.returncode})."
+                    + (f"\n\n{output}" if output else "")
+                )
+                return RedirectResponse("/panel/settings", status_code=302)
+            if output:
+                outputs.append(f"$ {label}\n{output}")
+
+        output_text = "\n\n".join(outputs)
+        request.session["flash_message"] = (
+            "Docker build cache cleared. Site files, databases, and volumes were not removed."
+            + (f"\n\n{output_text}" if output_text else "")
+        )
+    except subprocess.TimeoutExpired:
+        request.session["flash_error"] = "Cache cleanup timed out after 300 seconds."
+    except Exception as exc:
+        log.exception("Cache cleanup failed")
+        request.session["flash_error"] = f"Cache cleanup failed: {exc}"
+
+    return RedirectResponse("/panel/settings", status_code=302)
+
+
 # ── PL_CMS source update check ────────────────────────────────────────────────
 
 @router.post("/settings/check-pl-cms-updates")
