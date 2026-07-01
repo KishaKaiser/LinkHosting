@@ -155,15 +155,17 @@ def pull_repo(site_dir: Path, branch: Optional[str] = None) -> None:
     if not git_dir.exists():
         raise RuntimeError(f"No .git directory found in {site_dir} — was this repo cloned?")
 
+    safe_dir_flag = ["-c", f"safe.directory={site_dir}"]
+
     if branch:
         subprocess.run(
-            ["git", "checkout", branch],
+            ["git", *safe_dir_flag, "checkout", branch],
             cwd=str(site_dir), capture_output=True, check=True, timeout=30,
             env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
         )
 
     result = subprocess.run(
-        ["git", "pull", "--ff-only"],
+        ["git", *safe_dir_flag, "pull", "--ff-only"],
         cwd=str(site_dir), capture_output=True, text=True, timeout=120,
         env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
     )
