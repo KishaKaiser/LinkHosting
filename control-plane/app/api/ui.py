@@ -712,6 +712,57 @@ async def deploy_site_ui(request: Request, site_name: str, db: Session = Depends
     return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
 
+@router.post("/sites/{site_name}/pull-and-deploy")
+async def pull_and_deploy_ui(request: Request, site_name: str, db: Session = Depends(get_db)):
+    """Pull latest git changes then redeploy the site."""
+    redirect = _require_login(request)
+    if redirect:
+        return redirect
+
+    site = db.query(Site).filter(Site.name == site_name).first()
+    if not site:
+        return RedirectResponse("/panel/", status_code=302)
+
+    if not site.git_repo:
+        request.session["flash_error"] = "This site has no Git repository configured."
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    from pathlib import Path
+    from app.services.github import pull_repo
+    from app.services.container import provision_container
+    from app.services.proxy import write_vhost, reload_proxy
+    from app.models import Certificate
+
+    site_dir = Path(settings.sites_base_dir) / site.name
+
+    try:
+        pull_repo(site_dir, branch=site.git_branch or None)
+    except Exception as exc:
+        log.exception("UI: git pull failed for %s", site_name)
+        request.session["flash_error"] = f"Git pull failed: {exc}"
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+    try:
+        cert = db.query(Certificate).filter(Certificate.site_id == site.id).first()
+        tls = cert is not None
+        container_id = provision_container(site)
+        site.container_id = container_id
+        site.status = SiteStatus.running
+        db.commit()
+        write_vhost(site, tls=tls)
+        reload_proxy()
+        from app.services.dns import add_dns_record
+        add_dns_record(site.domain)
+        request.session["flash_message"] = "Pulled latest changes and redeployed successfully."
+    except Exception as exc:
+        site.status = SiteStatus.error
+        db.commit()
+        log.exception("UI: deploy after pull failed for %s", site_name)
+        request.session["flash_error"] = f"Pull succeeded but deploy failed: {exc}"
+
+    return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
+
+
 def _enqueue_deploy_job(job_record: "DeployJob", site: "Site", db: "Session") -> "str | None":
     """Enqueue the deploy job onto Redis/RQ. Returns RQ job id or None on error."""
     try:

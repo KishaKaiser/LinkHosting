@@ -39,6 +39,12 @@
         <form method="post" action="/panel/sites/{{ site.name }}/deploy">
             <button type="submit" class="btn btn-primary">🚀 Deploy</button>
         </form>
+        {% if site.git_repo %}
+        <form method="post" action="/panel/sites/{{ site.name }}/pull-and-deploy"
+              onsubmit="return confirm('Pull latest changes from Git and redeploy {{ site.name }}?')">
+            <button type="submit" class="btn btn-primary">⬇️ Pull & Redeploy</button>
+        </form>
+        {% endif %}
         <form method="post" action="/panel/sites/{{ site.name }}/stop">
             <button type="submit" class="btn btn-secondary">⏹ Stop</button>
         </form>
