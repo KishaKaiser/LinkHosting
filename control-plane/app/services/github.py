@@ -156,21 +156,39 @@ def pull_repo(site_dir: Path, branch: Optional[str] = None) -> None:
         raise RuntimeError(f"No .git directory found in {site_dir} — was this repo cloned?")
 
     safe_dir_flag = ["-c", f"safe.directory={site_dir}"]
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    target_branch = branch or "main"
 
-    if branch:
-        subprocess.run(
-            ["git", *safe_dir_flag, "checkout", branch],
-            cwd=str(site_dir), capture_output=True, check=True, timeout=30,
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+    # Inject token for private repos if configured
+    fetch_url = None
+    if settings.github_token.strip():
+        remote_result = subprocess.run(
+            ["git", *safe_dir_flag, "remote", "get-url", "origin"],
+            cwd=str(site_dir), capture_output=True, text=True, timeout=10, env=env,
         )
+        if remote_result.returncode == 0:
+            fetch_url = _inject_token(remote_result.stdout.strip(), settings.github_token)
 
-    result = subprocess.run(
-        ["git", *safe_dir_flag, "pull", "--ff-only"],
-        cwd=str(site_dir), capture_output=True, text=True, timeout=120,
-        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+    fetch_cmd = ["git", *safe_dir_flag, "fetch", "--depth=1"]
+    if fetch_url:
+        fetch_cmd += [fetch_url, target_branch]
+    else:
+        fetch_cmd += ["origin", target_branch]
+
+    fetch = subprocess.run(
+        fetch_cmd, cwd=str(site_dir), capture_output=True, text=True, timeout=120, env=env,
     )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"git pull failed (exit {result.returncode}): {result.stderr.strip()}"
-        )
-    log.info("Pulled latest changes in %s", site_dir)
+    if fetch.returncode != 0:
+        stderr = fetch.stderr.strip()
+        if settings.github_token.strip():
+            stderr = stderr.replace(settings.github_token, "***")
+        raise RuntimeError(f"git pull failed (exit {fetch.returncode}): {stderr}")
+
+    reset = subprocess.run(
+        ["git", *safe_dir_flag, "reset", "--hard", "FETCH_HEAD"],
+        cwd=str(site_dir), capture_output=True, text=True, timeout=30, env=env,
+    )
+    if reset.returncode != 0:
+        raise RuntimeError(f"git pull failed (exit {reset.returncode}): {reset.stderr.strip()}")
+
+    log.info("Pulled latest changes in %s (branch: %s)", site_dir, target_branch)
