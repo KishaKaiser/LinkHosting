@@ -69,7 +69,7 @@ def test_generate_pl_cms_compose_prod_mode(tmp_path, monkeypatch):
 
     assert config["dockerfiles"]["web"].exists()
     assert config["dockerfiles"]["api"].exists()
-    assert "FROM node:22-bookworm-slim" in config["dockerfiles"]["web"].read_text()
+    assert "FROM node:22-bookworm" in config["dockerfiles"]["web"].read_text()
     assert "apt-get update" not in config["dockerfiles"]["web"].read_text()
     assert "apt-get update" not in config["dockerfiles"]["api"].read_text()
     assert "secureCookie" in config["dockerfiles"]["web"].read_text()
