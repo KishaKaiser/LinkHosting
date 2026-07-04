@@ -303,8 +303,11 @@ def test_proxy_vhost_includes_pl_cms_routes(tmp_path, monkeypatch):
         assert "location = /api/auth/logout" in conf
         assert "location = /api/auth/refresh" in conf
         assert "location ^~ /api/proxy/" in conf
-        assert "proxy_pass http://lh_plcms_plcms-api-1:3001;" in conf
-        assert "proxy_pass http://lh_plcms_plcms-web-1:3000;" in conf
+        assert 'set $linkhosting_api_upstream "lh_plcms_plcms-api-1:3001";' in conf
+        assert 'set $linkhosting_web_upstream "lh_plcms_plcms-web-1:3000";' in conf
+        assert "proxy_pass http://$linkhosting_api_upstream;" in conf
+        assert "proxy_pass http://$linkhosting_web_upstream;" in conf
+        assert "resolver 127.0.0.11" in conf
         assert "return 302 /install;" not in conf
         assert 'proxy_set_header Upgrade $http_upgrade;' in conf
         assert 'proxy_set_header Connection "upgrade";' in conf

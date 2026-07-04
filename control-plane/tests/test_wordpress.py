@@ -392,9 +392,13 @@ def test_proxy_vhost_includes_wordpress_container_name(tmp_path, monkeypatch):
     proxy_module.write_vhost(site, tls=False)
 
     conf = (tmp_path / "wpsite.conf").read_text()
-    # proxy_pass must use the full Docker container name so DNS resolves
+    # Upstream must use the full Docker container name so Docker DNS resolves.
+    # It is stored in a variable so Nginx can start even while a site container
+    # is temporarily missing during a failed update.
     expected_upstream = "lh_wp_wpsite-wp_wpsite-1"
-    assert f"proxy_pass http://{expected_upstream}:80" in conf
+    assert f'set $linkhosting_upstream "{expected_upstream}:80";' in conf
+    assert "proxy_pass http://$linkhosting_upstream;" in conf
+    assert "resolver 127.0.0.11" in conf
     # Must NOT use the old broken pattern (site-wp_<name>) as the proxy_pass target
     assert "proxy_pass http://site-wp_wpsite" not in conf
     assert "proxy_pass http://site-wpsite" not in conf
@@ -424,7 +428,8 @@ def test_proxy_vhost_hyphenated_wordpress_site(tmp_path, monkeypatch):
     conf = (tmp_path / "psychic-link.conf").read_text()
     # Container name follows Docker Compose naming: project-service-1
     expected_upstream = "lh_wp_psychic_link-wp_psychic_link-1"
-    assert f"proxy_pass http://{expected_upstream}:80" in conf
+    assert f'set $linkhosting_upstream "{expected_upstream}:80";' in conf
+    assert "proxy_pass http://$linkhosting_upstream;" in conf
     assert "site-wp_psychic_link" not in conf
 
 
@@ -453,7 +458,8 @@ def test_proxy_vhost_tls_uses_site_name_for_certs(tmp_path, monkeypatch):
     # Cert paths must be keyed on the human site name, not the container name
     assert "/etc/nginx/certs/wpsite/cert.pem" in conf
     assert "/etc/nginx/certs/wpsite/key.pem" in conf
-    # proxy_pass still uses the full container name
-    assert "proxy_pass http://lh_wp_wpsite-wp_wpsite-1:80" in conf
+    # proxy_pass still uses the full container name through a runtime-resolved variable
+    assert 'set $linkhosting_upstream "lh_wp_wpsite-wp_wpsite-1:80";' in conf
+    assert "proxy_pass http://$linkhosting_upstream;" in conf
     assert "proxy_pass http://site-wpsite" not in conf
     assert "proxy_pass http://site-wp_wpsite" not in conf

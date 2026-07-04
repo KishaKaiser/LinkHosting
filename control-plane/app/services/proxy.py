@@ -21,9 +21,11 @@ server {{
     listen 80;
     server_name {domain};
 {client_max_body_size_line}
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $linkhosting_upstream "{upstream}:{port}";
 
     location / {{
-        proxy_pass http://{upstream}:{port};
+        proxy_pass http://$linkhosting_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -47,6 +49,8 @@ server {{
     listen 443 ssl;
     server_name {domain};
 {client_max_body_size_line}
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $linkhosting_upstream "{upstream}:{port}";
 
     ssl_certificate     /etc/nginx/certs/{site_name}/cert.pem;
     ssl_certificate_key /etc/nginx/certs/{site_name}/key.pem;
@@ -54,7 +58,7 @@ server {{
     ssl_ciphers         HIGH:!aNULL:!MD5;
 
     location / {{
-        proxy_pass http://{upstream}:{port};
+        proxy_pass http://$linkhosting_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -72,9 +76,12 @@ server {{
     listen 80;
     server_name {domain};
 {client_max_body_size_line}
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $linkhosting_web_upstream "{web_upstream}:3000";
+    set $linkhosting_api_upstream "{api_upstream}:3001";
 
     location = /api/auth/login {{
-        proxy_pass http://{web_upstream}:3000;
+        proxy_pass http://$linkhosting_web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -82,7 +89,7 @@ server {{
     }}
 
     location = /api/auth/logout {{
-        proxy_pass http://{web_upstream}:3000;
+        proxy_pass http://$linkhosting_web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -90,7 +97,7 @@ server {{
     }}
 
     location = /api/auth/refresh {{
-        proxy_pass http://{web_upstream}:3000;
+        proxy_pass http://$linkhosting_web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -98,7 +105,7 @@ server {{
     }}
 
     location ^~ /api/proxy/ {{
-        proxy_pass http://{web_upstream}:3000;
+        proxy_pass http://$linkhosting_web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -106,7 +113,7 @@ server {{
     }}
 
     location = /api {{
-        proxy_pass http://{api_upstream}:3001;
+        proxy_pass http://$linkhosting_api_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -114,7 +121,7 @@ server {{
     }}
 
     location ^~ /api/ {{
-        proxy_pass http://{api_upstream}:3001;
+        proxy_pass http://$linkhosting_api_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -122,7 +129,7 @@ server {{
     }}
 
     location = /ws {{
-        proxy_pass http://{api_upstream}:3001;
+        proxy_pass http://$linkhosting_api_upstream;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -133,7 +140,7 @@ server {{
     }}
 
     location ^~ /ws/ {{
-        proxy_pass http://{api_upstream}:3001;
+        proxy_pass http://$linkhosting_api_upstream;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -144,7 +151,7 @@ server {{
     }}
 
     location / {{
-        proxy_pass http://{web_upstream}:3000;
+        proxy_pass http://$linkhosting_web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -165,6 +172,9 @@ server {{
     listen 443 ssl;
     server_name {domain};
 {client_max_body_size_line}
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $linkhosting_web_upstream "{web_upstream}:3000";
+    set $linkhosting_api_upstream "{api_upstream}:3001";
 
     ssl_certificate     /etc/nginx/certs/{site_name}/cert.pem;
     ssl_certificate_key /etc/nginx/certs/{site_name}/key.pem;
@@ -172,7 +182,7 @@ server {{
     ssl_ciphers         HIGH:!aNULL:!MD5;
 
     location = /api/auth/login {{
-        proxy_pass http://{web_upstream}:3000;
+        proxy_pass http://$linkhosting_web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -180,7 +190,7 @@ server {{
     }}
 
     location = /api/auth/logout {{
-        proxy_pass http://{web_upstream}:3000;
+        proxy_pass http://$linkhosting_web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -188,7 +198,7 @@ server {{
     }}
 
     location = /api/auth/refresh {{
-        proxy_pass http://{web_upstream}:3000;
+        proxy_pass http://$linkhosting_web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -196,7 +206,7 @@ server {{
     }}
 
     location ^~ /api/proxy/ {{
-        proxy_pass http://{web_upstream}:3000;
+        proxy_pass http://$linkhosting_web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -204,7 +214,7 @@ server {{
     }}
 
     location = /api {{
-        proxy_pass http://{api_upstream}:3001;
+        proxy_pass http://$linkhosting_api_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -212,7 +222,7 @@ server {{
     }}
 
     location ^~ /api/ {{
-        proxy_pass http://{api_upstream}:3001;
+        proxy_pass http://$linkhosting_api_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -220,7 +230,7 @@ server {{
     }}
 
     location = /ws {{
-        proxy_pass http://{api_upstream}:3001;
+        proxy_pass http://$linkhosting_api_upstream;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -231,7 +241,7 @@ server {{
     }}
 
     location ^~ /ws/ {{
-        proxy_pass http://{api_upstream}:3001;
+        proxy_pass http://$linkhosting_api_upstream;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -242,7 +252,7 @@ server {{
     }}
 
     location / {{
-        proxy_pass http://{web_upstream}:3000;
+        proxy_pass http://$linkhosting_web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
