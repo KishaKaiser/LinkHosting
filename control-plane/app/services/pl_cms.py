@@ -182,7 +182,7 @@ def _dockerfile_paths(site_dir: Path) -> dict[str, Path]:
 
 def _web_dockerfile() -> str:
     return """\
-FROM node:22-bookworm
+FROM node:22-bullseye
 WORKDIR /app
 
 RUN corepack enable
@@ -206,7 +206,7 @@ CMD ["pnpm", "--filter", "@pl-cms/web", "start"]
 
 def _api_dockerfile() -> str:
     return """\
-FROM node:22-bookworm
+FROM node:22-bullseye
 WORKDIR /app
 
 RUN corepack enable
