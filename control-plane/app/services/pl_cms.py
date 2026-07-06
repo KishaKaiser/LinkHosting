@@ -45,6 +45,7 @@ _REQUIRED_BUILD_CONTEXT_PATHS = (
 )
 _PL_CMS_DEFAULT_REPO_URL = "https://github.com/KishaKaiser/PL_CMS.git"
 _PL_CMS_GENERATED_ASSET_PATHS = frozenset({"docker-compose.yml", ".linkhosting", ".secrets"})
+_PL_CMS_NODE_IMAGE = "node:22-bullseye"
 
 
 def default_pl_cms_repo_url() -> str:
@@ -181,8 +182,7 @@ def _dockerfile_paths(site_dir: Path) -> dict[str, Path]:
 
 
 def _web_dockerfile() -> str:
-    return """\
-FROM node:22-bullseye
+    return f"FROM {_PL_CMS_NODE_IMAGE}\n" + """\
 WORKDIR /app
 
 RUN corepack enable
@@ -205,8 +205,7 @@ CMD ["pnpm", "--filter", "@pl-cms/web", "start"]
 
 
 def _api_dockerfile() -> str:
-    return """\
-FROM node:22-bullseye
+    return f"FROM {_PL_CMS_NODE_IMAGE}\n" + """\
 WORKDIR /app
 
 RUN corepack enable
