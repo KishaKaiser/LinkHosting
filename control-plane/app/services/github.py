@@ -157,7 +157,7 @@ def pull_repo(site_dir: Path, branch: Optional[str] = None) -> None:
 
     safe_dir_flag = ["-c", f"safe.directory={site_dir}"]
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-    target_branch = branch or "main"
+    target_branch = branch or _current_branch(site_dir, safe_dir_flag, env) or _origin_head_branch(site_dir, safe_dir_flag, env) or "main"
 
     # Inject token for private repos if configured
     fetch_url = None
@@ -175,9 +175,23 @@ def pull_repo(site_dir: Path, branch: Optional[str] = None) -> None:
     else:
         fetch_cmd += ["origin", target_branch]
 
-    fetch = subprocess.run(
-        fetch_cmd, cwd=str(site_dir), capture_output=True, text=True, timeout=120, env=env,
-    )
+    fetch = subprocess.run(fetch_cmd, cwd=str(site_dir), capture_output=True, text=True, timeout=120, env=env)
+    if fetch.returncode != 0 and "couldn't find remote ref" in fetch.stderr:
+        fallback_branch = _current_branch(site_dir, safe_dir_flag, env) or _origin_head_branch(site_dir, safe_dir_flag, env)
+        if fallback_branch and fallback_branch != target_branch:
+            log.warning(
+                "Branch %s was not found for %s; retrying git pull with %s",
+                target_branch,
+                site_dir,
+                fallback_branch,
+            )
+            target_branch = fallback_branch
+            fetch_cmd = ["git", *safe_dir_flag, "fetch", "--depth=1"]
+            if fetch_url:
+                fetch_cmd += [fetch_url, target_branch]
+            else:
+                fetch_cmd += ["origin", target_branch]
+            fetch = subprocess.run(fetch_cmd, cwd=str(site_dir), capture_output=True, text=True, timeout=120, env=env)
     if fetch.returncode != 0:
         stderr = fetch.stderr.strip()
         if settings.github_token.strip():
@@ -192,3 +206,33 @@ def pull_repo(site_dir: Path, branch: Optional[str] = None) -> None:
         raise RuntimeError(f"git pull failed (exit {reset.returncode}): {reset.stderr.strip()}")
 
     log.info("Pulled latest changes in %s (branch: %s)", site_dir, target_branch)
+
+
+def _current_branch(site_dir: Path, safe_dir_flag: list[str], env: dict[str, str]) -> Optional[str]:
+    result = subprocess.run(
+        ["git", *safe_dir_flag, "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=str(site_dir),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env=env,
+    )
+    branch = result.stdout.strip()
+    if result.returncode == 0 and branch and branch != "HEAD":
+        return branch
+    return None
+
+
+def _origin_head_branch(site_dir: Path, safe_dir_flag: list[str], env: dict[str, str]) -> Optional[str]:
+    result = subprocess.run(
+        ["git", *safe_dir_flag, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        cwd=str(site_dir),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env=env,
+    )
+    branch = result.stdout.strip()
+    if result.returncode == 0 and branch.startswith("origin/"):
+        return branch.removeprefix("origin/")
+    return None

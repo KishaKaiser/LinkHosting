@@ -152,6 +152,39 @@ class TestCloneRepoDev:
             clone_repo("https://evil.com/owner/repo", tmp_path / "site")
 
 
+def test_pull_repo_retries_current_branch_when_saved_branch_missing(tmp_path, monkeypatch):
+    """A site saved as main should still update when the checkout is actually on master."""
+    import subprocess
+    import app.config as cfg
+    from app.services.github import pull_repo
+
+    site_dir = tmp_path / "site"
+    (site_dir / ".git").mkdir(parents=True)
+    monkeypatch.setattr(cfg.settings, "dev_mode", False)
+    monkeypatch.setattr(cfg.settings, "github_token", "")
+
+    calls: list[list[str]] = []
+
+    def fake_run(args, **_kwargs):
+        calls.append(args)
+        if args[-2:] == ["--abbrev-ref", "HEAD"]:
+            return subprocess.CompletedProcess(args, 0, stdout="master\n", stderr="")
+        if args[-2:] == ["origin", "main"]:
+            return subprocess.CompletedProcess(args, 128, stdout="", stderr="fatal: couldn't find remote ref main")
+        if args[-2:] == ["origin", "master"]:
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        if "reset" in args:
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    pull_repo(site_dir, branch="main")
+
+    assert any(call[-2:] == ["origin", "main"] for call in calls)
+    assert any(call[-2:] == ["origin", "master"] for call in calls)
+
+
 # ── API integration tests ─────────────────────────────────────────────────────
 
 def test_create_site_with_github_repo(client, tmp_path, monkeypatch):
