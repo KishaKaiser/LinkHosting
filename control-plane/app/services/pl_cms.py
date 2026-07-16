@@ -399,6 +399,13 @@ def generate_pl_cms_compose(
                     "redis": {"condition": "service_healthy"},
                 },
                 "networks": ["internal", "proxy"],
+                # Lets the api container reach services (like a host-installed
+                # Ollama) bound to the Docker host itself via a stable name,
+                # instead of requiring the operator to hardcode a bridge
+                # network gateway IP that can change when the network is
+                # recreated. Supported on Docker Desktop out of the box and
+                # on Linux with Docker 20.10+ via the "host-gateway" alias.
+                "extra_hosts": ["host.docker.internal:host-gateway"],
                 "labels": {
                     "linkhosting.site": site_name,
                     "linkhosting.domain": domain,
