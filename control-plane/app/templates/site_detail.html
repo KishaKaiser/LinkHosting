@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ site.name }} — LinkHosting{% endblock %}
+{% block extra_head %}{% if active_job %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
 {% block content %}
 <div class="flex" style="justify-content: space-between; align-items: baseline;">
     <h1>{{ site.name }}</h1>
@@ -11,6 +12,18 @@
 {% endif %}
 {% if error %}
 <div class="alert alert-error" style="white-space: pre-wrap;">{{ error }}</div>
+{% endif %}
+{% if active_job %}
+<div class="alert" style="background:#cce5ff; color:#004085; border:1px solid #b8daff;">
+    <strong>Job #{{ active_job.id }} is {{ active_job.status.value }}.</strong>
+    This runs in the background, so you can close this page or let your computer sleep. This page refreshes every few seconds to show progress.
+    {% if active_job.logs %}
+    <details style="margin-top:0.5rem;" open>
+        <summary style="cursor:pointer; font-size:0.85rem;">Progress</summary>
+        <pre style="white-space: pre-wrap; margin:0.4rem 0 0;">{{ active_job.logs }}</pre>
+    </details>
+    {% endif %}
+</div>
 {% endif %}
 
 <div class="card">
@@ -67,7 +80,7 @@
     {% if site.site_type.value == 'wordpress' %}
     <p class="text-muted mt-1">WordPress sites are deployed via Docker Compose. Deploy runs in the background — check the Jobs section below.</p>
     {% elif site.site_type.value == 'pl_cms' %}
-    <p class="text-muted mt-1">PL_CMS sites are deployed via a generated Docker Compose stack (web, api, postgres, redis). Update PL_CMS pulls the latest source and rebuilds web/api while keeping database volumes. After the first deploy, open <code>http://{{ site.domain }}/install</code> to create the admin account.</p>
+    <p class="text-muted mt-1">PL_CMS sites are deployed via a generated Docker Compose stack (web, api, postgres, redis). Update PL_CMS pulls the latest source and rebuilds web/api while keeping database volumes. It runs as a background job, so closing the page or letting your computer sleep will not interrupt it. After the first deploy, open <code>http://{{ site.domain }}/install</code> to create the admin account.</p>
     {% endif %}
     <p class="text-muted mt-1">
         <strong>SSL:</strong> Issues a certificate from the internal CA for <code>{{ site.domain }}</code>.

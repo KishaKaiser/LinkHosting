@@ -207,3 +207,95 @@ def run_pl_cms_deploy(job_id: int) -> None:
             db.commit()
     finally:
         db.close()
+
+
+def _tail(text: str, limit: int = 20000) -> str:
+    """Keep the end of long command output (the part that explains a failure) so job logs stay small."""
+    if len(text) <= limit:
+        return text
+    return "[earlier output trimmed]\n" + text[-limit:]
+
+
+def run_pl_cms_update(job_id: int) -> None:
+    """Entry point called by the RQ worker to pull the latest PL_CMS source and rebuild its containers.
+
+    This runs in the worker rather than inside the web request, so a closed or sleeping browser
+    cannot interrupt a rebuild that takes several minutes. Progress is written to the job's logs.
+    """
+    os.environ.setdefault("DATABASE_URL", "sqlite:///./dev.db")
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from app.config import settings
+    from app.models import DeployJob, JobStatus, Site, SiteStatus
+    from app.services.pl_cms import get_pl_cms_container_name, update_pl_cms_source
+    from app.services.proxy import reload_proxy, write_vhost
+
+    engine = create_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+        connect_args={"check_same_thread": False}
+        if settings.database_url.startswith("sqlite") else {},
+    )
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    try:
+        job = db.query(DeployJob).filter(DeployJob.id == job_id).first()
+        if not job:
+            log.error("DeployJob %d not found", job_id)
+            return
+
+        site = db.query(Site).filter(Site.id == job.site_id).first()
+        if not site:
+            log.error("Site for DeployJob %d not found", job_id)
+            job.status = JobStatus.failed
+            job.logs = "Site record not found"
+            db.commit()
+            return
+
+        job.status = JobStatus.running
+        log_lines: list[str] = [
+            "Pulling the latest PL_CMS source from GitHub and rebuilding the containers. "
+            "This takes several minutes and keeps running if you close this page."
+        ]
+        job.logs = "\n".join(log_lines)
+        db.commit()
+
+        try:
+            stdout, stderr = update_pl_cms_source(
+                site.name,
+                site.domain,
+                site.env_vars,
+                repo_branch=site.git_branch,
+                tls=False,
+            )
+            if stdout:
+                log_lines.append(_tail(stdout))
+            if stderr:
+                log_lines.append(_tail(stderr))
+
+            site.container_id = get_pl_cms_container_name(site.name, "web")
+            site.status = SiteStatus.running
+            db.commit()
+
+            write_vhost(site, tls=False)
+            reload_proxy()
+            log_lines.append("Nginx vhost refreshed and reloaded")
+            log_lines.append("Update finished. Database volumes were kept.")
+
+            job.status = JobStatus.succeeded
+            job.logs = "\n".join(log_lines)
+            db.commit()
+            log.info("PL_CMS update job %d for site %s succeeded", job_id, site.name)
+        except Exception as exc:
+            db.rollback()
+            log.exception("PL_CMS update job %d failed", job_id)
+            log_lines.append(f"ERROR: {exc}")
+            job.status = JobStatus.failed
+            job.logs = "\n".join(log_lines)
+            site.status = SiteStatus.error
+            db.commit()
+    finally:
+        db.close()

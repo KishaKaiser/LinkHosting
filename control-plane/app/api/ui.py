@@ -9,6 +9,7 @@ import json as _json
 import logging
 import posixpath
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
@@ -358,6 +359,7 @@ async def site_detail(request: Request, site_name: str, db: Session = Depends(ge
         .limit(10)
         .all()
     )
+    active_job = _active_deploy_job(db, site)
 
     message = request.session.pop("flash_message", None)
     error = request.session.pop("flash_error", None)
@@ -378,6 +380,7 @@ async def site_detail(request: Request, site_name: str, db: Session = Depends(ge
         {
             "site": site,
             "jobs": jobs,
+            "active_job": active_job,
             "message": message,
             "error": error,
             "env_text": env_text,
@@ -763,17 +766,73 @@ async def pull_and_deploy_ui(request: Request, site_name: str, db: Session = Dep
     return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
 
-def _enqueue_deploy_job(job_record: "DeployJob", site: "Site", db: "Session") -> "str | None":
-    """Enqueue the deploy job onto Redis/RQ. Returns RQ job id or None on error."""
+def _as_utc(value: "datetime | None") -> "datetime | None":
+    """Job timestamps come back naive from SQLite and aware from Postgres; treat naive ones as UTC."""
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _rq_job_is_alive(rq_job_id: "str | None") -> bool:
+    """Best effort: does the queue still know this job as pending or executing?
+
+    Returns True when unsure (no queue id, or Redis unreachable) so a duplicate is never started by mistake.
+    """
+    if not rq_job_id:
+        return True
+    try:
+        import redis
+        from rq.exceptions import NoSuchJobError
+        from rq.job import Job
+
+        try:
+            job = Job.fetch(rq_job_id, connection=redis.from_url(settings.redis_url))
+        except NoSuchJobError:
+            return False
+        return job.get_status() in ("queued", "started", "scheduled", "deferred")
+    except Exception:
+        return True
+
+
+def _active_deploy_job(db: "Session", site: "Site | None" = None) -> "DeployJob | None":
+    """The newest deploy/update job still queued or running, for one site or for any site.
+
+    Skips jobs older than the job timeout and jobs the queue no longer knows about, because a crashed
+    or restarted worker can leave a row stuck as "running".
+    """
+    query = db.query(DeployJob).filter(DeployJob.status.in_([JobStatus.queued, JobStatus.running]))
+    if site is not None:
+        query = query.filter(DeployJob.site_id == site.id)
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=settings.deploy_job_timeout_seconds + 300)
+    for job in query.order_by(DeployJob.id.desc()).all():
+        created = _as_utc(job.created_at)
+        if created is not None and created < cutoff:
+            continue
+        if not _rq_job_is_alive(job.rq_job_id):
+            continue
+        return job
+    return None
+
+
+def _enqueue_deploy_job(
+    job_record: "DeployJob", site: "Site", db: "Session", *, update: bool = False
+) -> "str | None":
+    """Enqueue the deploy (or, with update=True, the PL_CMS source update) onto Redis/RQ.
+
+    Returns the RQ job id, or None if it could not be queued.
+    """
     try:
         import redis
         from rq import Queue
 
         conn = redis.from_url(settings.redis_url)
         q = Queue("deploy", connection=conn)
-        from app.jobs import run_pl_cms_deploy, run_wordpress_deploy
+        from app.jobs import run_pl_cms_deploy, run_pl_cms_update, run_wordpress_deploy
 
-        runner = run_wordpress_deploy if site.site_type == SiteType.wordpress else run_pl_cms_deploy
+        if update:
+            runner = run_pl_cms_update
+        else:
+            runner = run_wordpress_deploy if site.site_type == SiteType.wordpress else run_pl_cms_deploy
         rq_job = q.enqueue(
             runner,
             job_record.id,
@@ -787,8 +846,12 @@ def _enqueue_deploy_job(job_record: "DeployJob", site: "Site", db: "Session") ->
         )
         # Fall back to inline execution using the provided DB session (avoids cross-session issues)
         if settings.dev_mode:
-            from app.api.sites import _run_deploy_inline
-            _run_deploy_inline(job_record, site, db)
+            if update:
+                from app.jobs import run_pl_cms_update
+                run_pl_cms_update(job_record.id)
+            else:
+                from app.api.sites import _run_deploy_inline
+                _run_deploy_inline(job_record, site, db)
         return None
 
 
@@ -807,33 +870,42 @@ async def update_pl_cms_site_ui(request: Request, site_name: str, db: Session = 
         request.session["flash_error"] = "PL_CMS updates are only available for PL_CMS sites."
         return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
-    from app.services.pl_cms import get_pl_cms_container_name, update_pl_cms_source
-    from app.services.proxy import reload_proxy, write_vhost
+    active = _active_deploy_job(db, site)
+    if active:
+        request.session["flash_error"] = (
+            f"A deploy or update is already running for this site (job #{active.id}). "
+            "Wait for it to finish before starting another."
+        )
+        return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
-    try:
-        stdout, stderr = update_pl_cms_source(
-            site.name,
-            site.domain,
-            site.env_vars,
-            repo_branch=site.git_branch,
-            tls=False,
-        )
-        site.container_id = get_pl_cms_container_name(site.name, "web")
-        site.status = SiteStatus.running
+    # The pull and rebuild take minutes, so they run in the background worker. Doing them inside this
+    # request left the page spinning (and the panel unresponsive) if the browser went away mid-update.
+    job_record = DeployJob(
+        site_id=site.id,
+        status=JobStatus.queued,
+        logs="Queued: waiting for the background worker to start the PL_CMS update.",
+    )
+    db.add(job_record)
+    db.commit()
+    db.refresh(job_record)
+
+    rq_job_id = _enqueue_deploy_job(job_record, site, db, update=True)
+    if rq_job_id:
+        job_record.rq_job_id = rq_job_id
         db.commit()
-        write_vhost(site, tls=False)
-        reload_proxy()
         request.session["flash_message"] = (
-            "PL_CMS updated from GitHub and rebuilt without removing database volumes."
-            + (f"\n\n{stdout}" if stdout else "")
-            + (f"\n\n{stderr}" if stderr else "")
+            f"PL_CMS update queued as job #{job_record.id}. It runs in the background, so you can close "
+            "this page or let your computer sleep. This page refreshes on its own to show progress."
         )
-    except Exception as exc:
-        db.rollback()
-        site.status = SiteStatus.error
+    elif settings.dev_mode:
+        request.session["flash_message"] = f"[DEV] PL_CMS update job #{job_record.id} ran inline."
+    else:
+        job_record.status = JobStatus.failed
+        job_record.logs = "Could not queue the update: the job queue (Redis) is not reachable. Nothing was changed."
         db.commit()
-        log.exception("UI: PL_CMS update failed for %s", site_name)
-        request.session["flash_error"] = f"PL_CMS update failed: {exc}"
+        request.session["flash_error"] = (
+            "Could not start the PL_CMS update: the job queue is unavailable. Nothing was changed."
+        )
 
     return RedirectResponse(f"/panel/sites/{site.name}", status_code=302)
 
@@ -1221,6 +1293,7 @@ async def check_linkhosting_updates_post(request: Request):
 async def update_linkhosting_post(
     request: Request,
     rebuild_stack: str = Form("0"),
+    db: Session = Depends(get_db),
 ):
     """Pull the latest LinkHosting code from the configured Git checkout."""
     redirect = _require_login(request)
@@ -1228,6 +1301,17 @@ async def update_linkhosting_post(
         return redirect
 
     import subprocess
+
+    if rebuild_stack == "1":
+        # Recreating the worker would kill a site deploy/update that is running inside it.
+        busy = _active_deploy_job(db)
+        if busy:
+            busy_site = db.query(Site).filter(Site.id == busy.site_id).first()
+            request.session["flash_error"] = (
+                f"A site deploy or update is still running (job #{busy.id} for {busy_site.name if busy_site else 'a site'}). "
+                "Restarting the worker now would interrupt it. Wait for it to finish, then try again."
+            )
+            return RedirectResponse("/panel/settings", status_code=302)
 
     try:
         repo_dir, repo_branch = _resolve_update_repo()
@@ -1248,6 +1332,12 @@ async def update_linkhosting_post(
         if result.returncode == 0:
             message = f"LinkHosting updated from GitHub {repo_branch}."
             if rebuild_stack == "1":
+                # Run the recreate step inside the `updater` sidecar, not as a
+                # subprocess of this panel process. `panel` is one of the
+                # services being force-recreated — if the compose command ran
+                # here, Docker would kill this container (and the CLI process
+                # driving the recreate) partway through, before it reached the
+                # `start` step for the replacement containers.
                 subprocess.Popen(
                     [
                         "docker", "exec", "-d", "lh-updater",
@@ -1334,12 +1424,6 @@ async def clear_cache_post(request: Request):
 async def check_pl_cms_updates_post(request: Request):
     """Check the latest PL_CMS source commit on GitHub for future deployments."""
     redirect = _require_login(request)
-                # Run the recreate step inside the `updater` sidecar, not as a
-                # subprocess of this panel process. `panel` is one of the
-                # services being force-recreated — if the compose command ran
-                # here, Docker would kill this container (and the CLI process
-                # driving the recreate) partway through, before it reached the
-                # `start` step for the replacement containers.
     if redirect:
         return redirect
 

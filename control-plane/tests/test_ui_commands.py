@@ -865,3 +865,265 @@ def test_truncate_command_output_tiny_limit():
     assert _truncate_command_output(output, limit=1) == "."
     assert _truncate_command_output(output, limit=2) == ".."
     assert _truncate_command_output(output, limit=3) == "..."
+
+
+# ── PL_CMS update runs as a background job ───────────────────────────────────
+
+def _db_session():
+    from tests.conftest import TestingSessionLocal
+
+    return TestingSessionLocal()
+
+
+def _site_id(name):
+    from app.models import Site
+
+    db = _db_session()
+    try:
+        return db.query(Site).filter(Site.name == name).first().id
+    finally:
+        db.close()
+
+
+def _add_job(site_id, status, *, rq_job_id=None, age=None):
+    from datetime import datetime, timedelta, timezone
+
+    from app.models import DeployJob
+
+    db = _db_session()
+    try:
+        job = DeployJob(site_id=site_id, status=status, rq_job_id=rq_job_id)
+        if age is not None:
+            job.created_at = datetime.now(timezone.utc) - age
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        return job.id
+    finally:
+        db.close()
+
+
+def _job_count(site_id):
+    from app.models import DeployJob
+
+    db = _db_session()
+    try:
+        return db.query(DeployJob).filter(DeployJob.site_id == site_id).count()
+    finally:
+        db.close()
+
+
+def _fake_enqueue_factory(rq_job_id, calls):
+    def fake_enqueue(job_record, site, db, *, update=False):
+        calls.append({"job_id": job_record.id, "update": update})
+        return rq_job_id
+
+    return fake_enqueue
+
+
+def test_update_pl_cms_queues_a_background_job(client, monkeypatch):
+    """The update must be queued for the worker, never run inside the web request."""
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "bg-plcms", "site_type": "pl_cms"})
+
+    import app.api.ui as ui_api
+    import app.services.pl_cms as pl_cms_module
+
+    calls = []
+    monkeypatch.setattr(ui_api, "_enqueue_deploy_job", _fake_enqueue_factory("rq-1", calls))
+    monkeypatch.setattr(ui_api, "_rq_job_is_alive", lambda _id: True)
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("the rebuild ran inside the web request")
+
+    monkeypatch.setattr(pl_cms_module, "update_pl_cms_source", must_not_run)
+
+    resp = client.post("/panel/sites/bg-plcms/update-pl-cms", follow_redirects=True)
+
+    assert resp.status_code == 200
+    assert len(calls) == 1 and calls[0]["update"] is True
+    assert "queued as job" in resp.text
+    assert "is queued" in resp.text
+    # The page refreshes itself while a job is active so progress shows without clicking.
+    assert 'http-equiv="refresh"' in resp.text
+
+
+def test_site_page_does_not_refresh_when_no_job_is_active(client):
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "idle-plcms", "site_type": "pl_cms"})
+
+    resp = client.get("/panel/sites/idle-plcms")
+
+    assert resp.status_code == 200
+    assert 'http-equiv="refresh"' not in resp.text
+
+
+def test_update_pl_cms_refuses_a_second_update_while_one_is_running(client, monkeypatch):
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "twice-plcms", "site_type": "pl_cms"})
+
+    import app.api.ui as ui_api
+
+    calls = []
+    monkeypatch.setattr(ui_api, "_enqueue_deploy_job", _fake_enqueue_factory("rq-2", calls))
+    monkeypatch.setattr(ui_api, "_rq_job_is_alive", lambda _id: True)
+
+    client.post("/panel/sites/twice-plcms/update-pl-cms", follow_redirects=True)
+    resp = client.post("/panel/sites/twice-plcms/update-pl-cms", follow_redirects=True)
+
+    assert "already running" in resp.text
+    assert len(calls) == 1
+    assert _job_count(_site_id("twice-plcms")) == 1
+
+
+def test_update_pl_cms_marks_job_failed_when_queue_is_unavailable(client, monkeypatch):
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "noqueue-plcms", "site_type": "pl_cms"})
+
+    import app.api.ui as ui_api
+
+    monkeypatch.setattr(ui_api.settings, "dev_mode", False)
+    monkeypatch.setattr(ui_api, "_enqueue_deploy_job", _fake_enqueue_factory(None, []))
+
+    resp = client.post("/panel/sites/noqueue-plcms/update-pl-cms", follow_redirects=True)
+
+    assert "job queue is unavailable" in resp.text
+    assert "Nothing was changed" in resp.text
+    # A failed job must not block the next attempt.
+    assert ui_api._active_deploy_job(_db_session(), None) is None
+
+
+def test_active_job_ignores_stale_and_unknown_jobs(client, monkeypatch):
+    from datetime import timedelta
+
+    from app.models import JobStatus
+
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "stale-plcms", "site_type": "pl_cms"})
+    site_id = _site_id("stale-plcms")
+
+    import app.api.ui as ui_api
+    from app.models import Site
+
+    def active():
+        db = _db_session()
+        try:
+            site = db.query(Site).filter(Site.id == site_id).first()
+            job = ui_api._active_deploy_job(db, site)
+            return job.id if job else None
+        finally:
+            db.close()
+
+    monkeypatch.setattr(ui_api, "_rq_job_is_alive", lambda _id: True)
+
+    # A job stuck as "running" from long ago (crashed worker) must not block anything.
+    _add_job(site_id, JobStatus.running, age=timedelta(hours=3))
+    assert active() is None
+
+    # A recent running job does block.
+    recent = _add_job(site_id, JobStatus.running, rq_job_id="rq-live")
+    assert active() == recent
+
+    # ...unless the queue no longer knows about it (worker restarted mid-job).
+    monkeypatch.setattr(ui_api, "_rq_job_is_alive", lambda _id: False)
+    assert active() is None
+
+
+def test_run_pl_cms_update_job_succeeds(client, monkeypatch):
+    from app.models import DeployJob, JobStatus, Site, SiteStatus
+
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "runner-ok", "site_type": "pl_cms"})
+    job_id = _add_job(_site_id("runner-ok"), JobStatus.queued)
+
+    import app.services.pl_cms as pl_cms_module
+    import app.services.proxy as proxy_module
+
+    monkeypatch.setattr(pl_cms_module, "update_pl_cms_source", lambda *a, **k: ("rebuilt 4 services", ""))
+    monkeypatch.setattr(proxy_module, "write_vhost", lambda *a, **k: None)
+    monkeypatch.setattr(proxy_module, "reload_proxy", lambda *a, **k: None)
+
+    # The job opens its own database connection from the global settings; other test modules
+    # repoint those at their own files, so pin it to this suite's database.
+    from app.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "database_url", "sqlite:///./test.db")
+
+    from app.jobs import run_pl_cms_update
+
+    run_pl_cms_update(job_id)
+
+    db = _db_session()
+    try:
+        job = db.query(DeployJob).filter(DeployJob.id == job_id).first()
+        site = db.query(Site).filter(Site.name == "runner-ok").first()
+        assert job.status == JobStatus.succeeded
+        assert "rebuilt 4 services" in job.logs
+        assert "Update finished" in job.logs
+        assert site.status == SiteStatus.running
+    finally:
+        db.close()
+
+
+def test_run_pl_cms_update_job_records_failure(client, monkeypatch):
+    from app.models import DeployJob, JobStatus, Site, SiteStatus
+
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "runner-bad", "site_type": "pl_cms"})
+    job_id = _add_job(_site_id("runner-bad"), JobStatus.queued)
+
+    import app.services.pl_cms as pl_cms_module
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("docker build failed")
+
+    monkeypatch.setattr(pl_cms_module, "update_pl_cms_source", boom)
+
+    # The job opens its own database connection from the global settings; other test modules
+    # repoint those at their own files, so pin it to this suite's database.
+    from app.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "database_url", "sqlite:///./test.db")
+
+    from app.jobs import run_pl_cms_update
+
+    run_pl_cms_update(job_id)
+
+    db = _db_session()
+    try:
+        job = db.query(DeployJob).filter(DeployJob.id == job_id).first()
+        site = db.query(Site).filter(Site.name == "runner-bad").first()
+        assert job.status == JobStatus.failed
+        assert "docker build failed" in job.logs
+        assert site.status == SiteStatus.error
+    finally:
+        db.close()
+
+
+def test_linkhosting_rebuild_is_refused_while_a_site_job_is_running(client, monkeypatch):
+    """Recreating the worker would kill a running site update, so it must wait."""
+    from app.models import JobStatus
+
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "busy-plcms", "site_type": "pl_cms"})
+    _add_job(_site_id("busy-plcms"), JobStatus.running, rq_job_id="rq-busy")
+
+    import app.api.ui as ui_api
+
+    monkeypatch.setattr(ui_api, "_rq_job_is_alive", lambda _id: True)
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("a command ran even though a site job is active")
+
+    monkeypatch.setattr(subprocess, "run", must_not_run)
+    monkeypatch.setattr(subprocess, "Popen", must_not_run)
+
+    resp = client.post(
+        "/panel/settings/update-linkhosting",
+        data={"rebuild_stack": "1"},
+        follow_redirects=True,
+    )
+
+    assert resp.status_code == 200
+    assert "still running" in resp.text
+    assert "busy-plcms" in resp.text
