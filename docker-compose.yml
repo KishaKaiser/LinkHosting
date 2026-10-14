@@ -237,6 +237,29 @@ services:
       - dns
     logging: *default-logging
 
+  # ── Self-update helper ─────────────────────────────────────────────────────
+  # Idle sidecar that runs the "rebuild/recreate panel+worker+proxy" step
+  # triggered from Settings → Update LinkHosting. It must NOT be one of the
+  # services that step recreates: if the panel container ran that command
+  # itself, Docker would tear down its own container mid-recreate and kill
+  # the `docker compose` CLI process before it reached the `start` step,
+  # leaving the new containers created but never started.
+  updater:
+    build:
+      context: ./control-plane
+      dockerfile: Dockerfile
+    container_name: lh-updater
+    restart: unless-stopped
+    entrypoint: ["sleep", "infinity"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: ${LINKHOSTING_REPO_DIR_HOST:-.}
+        target: /opt/linkhosting
+    networks:
+      - backend
+    logging: *default-logging
+
   # ── Nginx Reverse Proxy ────────────────────────────────────────────────────
   proxy:
     build:

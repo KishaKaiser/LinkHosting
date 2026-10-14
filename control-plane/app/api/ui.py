@@ -1249,13 +1249,15 @@ async def update_linkhosting_post(
             message = f"LinkHosting updated from GitHub {repo_branch}."
             if rebuild_stack == "1":
                 subprocess.Popen(
-                    ["docker", "compose", "up", "-d", "--build", "--force-recreate", "panel", "worker", "proxy"],
-                    cwd=str(repo_dir),
+                    [
+                        "docker", "exec", "-d", "lh-updater",
+                        "docker", "compose", "-f", "/opt/linkhosting/docker-compose.yml",
+                        "up", "-d", "--build", "--force-recreate", "panel", "worker", "proxy",
+                    ],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    start_new_session=True,
                 )
-                message += " Rebuild/restart has started in the background. Wait about a minute, then refresh the panel."
+                message += " Rebuild/restart has started in the background via the updater helper. Wait about a minute, then refresh the panel."
             else:
                 message += " Rebuild/restart the LinkHosting stack and run migrations if needed."
             request.session["flash_message"] = message + (f"\n\n{output}" if output else "")
@@ -1332,6 +1334,12 @@ async def clear_cache_post(request: Request):
 async def check_pl_cms_updates_post(request: Request):
     """Check the latest PL_CMS source commit on GitHub for future deployments."""
     redirect = _require_login(request)
+                # Run the recreate step inside the `updater` sidecar, not as a
+                # subprocess of this panel process. `panel` is one of the
+                # services being force-recreated — if the compose command ran
+                # here, Docker would kill this container (and the CLI process
+                # driving the recreate) partway through, before it reached the
+                # `start` step for the replacement containers.
     if redirect:
         return redirect
 
