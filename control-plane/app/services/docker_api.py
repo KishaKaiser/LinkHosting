@@ -7,6 +7,7 @@ Provides:
   signals, exec inside a running container).
 """
 import logging
+import re
 import subprocess
 from pathlib import Path
 
@@ -114,3 +115,42 @@ def signal_container(container_name: str, signal: str = "SIGHUP") -> None:
     except Exception as exc:
         log.error("signal_container failed for %s: %s", container_name, exc)
         raise
+
+
+def prune_docker_leftovers(*, full: bool = False) -> list[str]:
+    """Remove the Docker leftovers that rebuilds pile up: untagged images and old build cache.
+
+    Never touches volumes, containers, or images that are still tagged, so site data is safe.
+    With ``full=False`` build cache used in the last 24 hours is kept so the next update stays fast;
+    ``full=True`` clears all unused build cache (used when the disk is already low).
+
+    Best effort: problems are reported in the returned log lines and never raised, so a cleanup
+    hiccup cannot fail an update that otherwise succeeded.
+    """
+    if settings.dev_mode:
+        return ["[DEV] Docker cleanup skipped"]
+
+    builder_cmd = ["docker", "builder", "prune", "-f"]
+    if not full:
+        builder_cmd += ["--filter", "until=24h"]
+    steps = [
+        ("untagged images", ["docker", "image", "prune", "-f"]),
+        ("build cache", builder_cmd),
+    ]
+
+    lines: list[str] = []
+    for label, cmd in steps:
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        except Exception as exc:
+            log.warning("Docker cleanup of %s failed: %s", label, exc)
+            lines.append(f"Cleanup of {label} failed: {exc}")
+            continue
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()[:300]
+            log.warning("Docker cleanup of %s failed (exit %s): %s", label, result.returncode, detail)
+            lines.append(f"Cleanup of {label} failed: {detail or f'exit {result.returncode}'}")
+            continue
+        match = re.search(r"Total reclaimed space:\s*(\S+)", result.stdout or "")
+        lines.append(f"Cleaned up {label}: reclaimed {match.group(1) if match else '0B'}")
+    return lines

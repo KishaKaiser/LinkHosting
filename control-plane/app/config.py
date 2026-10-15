@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     # Redis / RQ
     redis_url: str = "redis://redis:6379/0"
     deploy_job_timeout_seconds: int = 1800
+    # A PL_CMS update refuses to start (after trying a cleanup) when less than this much disk is free.
+    min_free_disk_gb: float = 5.0
 
     # Dev mode (skip real Docker/system calls)
     dev_mode: bool = False

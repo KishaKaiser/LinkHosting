@@ -216,6 +216,58 @@ def _tail(text: str, limit: int = 20000) -> str:
     return "[earlier output trimmed]\n" + text[-limit:]
 
 
+def _free_disk_gb(path: str) -> float:
+    """Free space in GB on the disk holding *path*.
+
+    The sites folder is a bind mount from the host, so this measures the host disk that Docker
+    builds fill up.
+    """
+    import shutil
+
+    return shutil.disk_usage(path).free / (1024 ** 3)
+
+
+def _ensure_free_disk(log_lines: list[str]) -> str | None:
+    """Make sure there is room to rebuild. Returns None if fine, or a message explaining why not.
+
+    If space is low, old Docker build leftovers are cleared first; only if that is not enough does the
+    update refuse to start, before anything is changed.
+    """
+    from app.config import settings
+    from app.services.docker_api import prune_docker_leftovers
+
+    if settings.dev_mode:
+        return None
+
+    needed = settings.min_free_disk_gb
+    try:
+        free = _free_disk_gb(settings.sites_base_dir)
+    except OSError as exc:
+        log.warning("Could not measure free disk space: %s", exc)
+        return None  # can't tell, so don't block the update
+
+    if free >= needed:
+        return None
+
+    log_lines.append(
+        f"Only {free:.1f} GB of disk space is free (at least {needed:g} GB is needed). "
+        "Clearing old Docker build leftovers first."
+    )
+    log_lines.extend(prune_docker_leftovers(full=True))
+    try:
+        free = _free_disk_gb(settings.sites_base_dir)
+    except OSError:
+        return None
+    if free >= needed:
+        log_lines.append(f"{free:.1f} GB free after cleanup. Continuing.")
+        return None
+    return (
+        f"Not enough free disk space to update safely: {free:.1f} GB free, at least {needed:g} GB needed. "
+        "Nothing was changed. Free some space on the server (for example old Docker images or large "
+        "log files) and try again."
+    )
+
+
 def run_pl_cms_update(job_id: int) -> None:
     """Entry point called by the RQ worker to pull the latest PL_CMS source and rebuild its containers.
 
@@ -229,6 +281,7 @@ def run_pl_cms_update(job_id: int) -> None:
 
     from app.config import settings
     from app.models import DeployJob, JobStatus, Site, SiteStatus
+    from app.services.docker_api import prune_docker_leftovers
     from app.services.pl_cms import get_pl_cms_container_name, update_pl_cms_source
     from app.services.proxy import reload_proxy, write_vhost
 
@@ -263,6 +316,17 @@ def run_pl_cms_update(job_id: int) -> None:
         job.logs = "\n".join(log_lines)
         db.commit()
 
+        # A full disk is what takes the databases down mid-rebuild, so make room first, and stop before
+        # changing anything if that is not possible. The site itself is left exactly as it was.
+        low_disk_message = _ensure_free_disk(log_lines)
+        if low_disk_message:
+            log_lines.append(low_disk_message)
+            job.status = JobStatus.failed
+            job.logs = "\n".join(log_lines)
+            db.commit()
+            log.error("PL_CMS update job %d not started: %s", job_id, low_disk_message)
+            return
+
         try:
             stdout, stderr = update_pl_cms_source(
                 site.name,
@@ -283,6 +347,8 @@ def run_pl_cms_update(job_id: int) -> None:
             write_vhost(site, tls=False)
             reload_proxy()
             log_lines.append("Nginx vhost refreshed and reloaded")
+            # Each rebuild leaves the previous images and build layers behind; reclaim them now.
+            log_lines.extend(prune_docker_leftovers())
             log_lines.append("Update finished. Database volumes were kept.")
 
             job.status = JobStatus.succeeded
@@ -293,6 +359,8 @@ def run_pl_cms_update(job_id: int) -> None:
             db.rollback()
             log.exception("PL_CMS update job %d failed", job_id)
             log_lines.append(f"ERROR: {exc}")
+            # A failed build leaves its partial layers behind too.
+            log_lines.extend(prune_docker_leftovers())
             job.status = JobStatus.failed
             job.logs = "\n".join(log_lines)
             site.status = SiteStatus.error
