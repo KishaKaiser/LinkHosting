@@ -1127,3 +1127,214 @@ def test_linkhosting_rebuild_is_refused_while_a_site_job_is_running(client, monk
     assert resp.status_code == 200
     assert "still running" in resp.text
     assert "busy-plcms" in resp.text
+
+
+# ── PL_CMS update cleans up after itself and protects the disk ───────────────
+
+def _run_update_job(monkeypatch, site_name, *, prune, update=None, free_disk=None, dev_mode=True):
+    """Run run_pl_cms_update for a fresh queued job with the heavy parts faked; return (job, site)."""
+    from app.config import settings as app_settings
+    from app.models import DeployJob, JobStatus, Site
+
+    import app.jobs as jobs_module
+    import app.services.docker_api as docker_api_module
+    import app.services.pl_cms as pl_cms_module
+    import app.services.proxy as proxy_module
+
+    job_id = _add_job(_site_id(site_name), JobStatus.queued)
+
+    # The job opens its own database connection from the global settings; pin it to this suite's database.
+    monkeypatch.setattr(app_settings, "database_url", "sqlite:///./test.db")
+    monkeypatch.setattr(app_settings, "dev_mode", dev_mode)
+    monkeypatch.setattr(docker_api_module, "prune_docker_leftovers", prune)
+    monkeypatch.setattr(proxy_module, "write_vhost", lambda *a, **k: None)
+    monkeypatch.setattr(proxy_module, "reload_proxy", lambda *a, **k: None)
+    monkeypatch.setattr(
+        pl_cms_module, "update_pl_cms_source", update or (lambda *a, **k: ("rebuilt", ""))
+    )
+    if free_disk is not None:
+        monkeypatch.setattr(jobs_module, "_free_disk_gb", free_disk)
+
+    jobs_module.run_pl_cms_update(job_id)
+
+    db = _db_session()
+    try:
+        job = db.query(DeployJob).filter(DeployJob.id == job_id).first()
+        site = db.query(Site).filter(Site.name == site_name).first()
+        db.expunge_all()
+        return job, site
+    finally:
+        db.close()
+
+
+def test_prune_docker_leftovers_only_removes_images_and_build_cache(monkeypatch):
+    # Patch the settings object the Docker helper actually holds (other tests reload app.config).
+    import app.services.docker_api as docker_api_module
+    from app.services.docker_api import prune_docker_leftovers
+
+    monkeypatch.setattr(docker_api_module.settings, "dev_mode", False)
+    commands = []
+
+    def fake_run(args, **kwargs):
+        commands.append(args)
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="Total reclaimed space: 3.5GB\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    lines = prune_docker_leftovers()
+    assert commands == [
+        ["docker", "image", "prune", "-f"],
+        ["docker", "builder", "prune", "-f", "--filter", "until=24h"],
+    ]
+    assert any("reclaimed 3.5GB" in line for line in lines)
+
+    commands.clear()
+    prune_docker_leftovers(full=True)
+    assert commands == [
+        ["docker", "image", "prune", "-f"],
+        ["docker", "builder", "prune", "-f"],
+    ]
+
+    # Site data lives in volumes (and running containers); cleanup must never touch either.
+    assert not any("volume" in part or "system" in part for cmd in commands for part in cmd)
+
+
+def test_prune_docker_leftovers_never_raises(monkeypatch):
+    # Patch the settings object the Docker helper actually holds (other tests reload app.config).
+    import app.services.docker_api as docker_api_module
+    from app.services.docker_api import prune_docker_leftovers
+
+    monkeypatch.setattr(docker_api_module.settings, "dev_mode", False)
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        if len(calls) == 1:
+            raise FileNotFoundError("docker")
+        return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="daemon unavailable")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    lines = prune_docker_leftovers()
+
+    assert len(calls) == 2  # the first failure did not stop the second step
+    assert all("failed" in line for line in lines)
+
+
+def test_update_job_cleans_up_after_a_successful_update(client, monkeypatch):
+    from app.models import JobStatus
+
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "clean-ok", "site_type": "pl_cms"})
+
+    job, _ = _run_update_job(
+        monkeypatch, "clean-ok", prune=lambda **k: ["Cleaned up untagged images: reclaimed 9GB"]
+    )
+
+    assert job.status == JobStatus.succeeded
+    assert "reclaimed 9GB" in job.logs
+    assert job.logs.index("reclaimed 9GB") < job.logs.index("Update finished")
+
+
+def test_update_job_cleans_up_after_a_failed_update(client, monkeypatch):
+    from app.models import JobStatus, SiteStatus
+
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "clean-bad", "site_type": "pl_cms"})
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("build blew up")
+
+    job, site = _run_update_job(
+        monkeypatch,
+        "clean-bad",
+        prune=lambda **k: ["Cleaned up build cache: reclaimed 4GB"],
+        update=boom,
+    )
+
+    assert job.status == JobStatus.failed
+    assert "build blew up" in job.logs
+    assert "reclaimed 4GB" in job.logs
+    assert site.status == SiteStatus.error
+
+
+def test_update_job_clears_leftovers_first_when_disk_is_low(client, monkeypatch):
+    from app.models import JobStatus
+
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "lowdisk-ok", "site_type": "pl_cms"})
+
+    free = iter([1.0, 12.0])  # low before cleanup, plenty after
+    prune_calls = []
+
+    def prune(**kwargs):
+        prune_calls.append(kwargs)
+        return ["Cleaned up build cache: reclaimed 20GB"]
+
+    job, _ = _run_update_job(
+        monkeypatch, "lowdisk-ok", prune=prune, free_disk=lambda path: next(free), dev_mode=False
+    )
+
+    assert job.status == JobStatus.succeeded
+    assert "Only 1.0 GB of disk space is free" in job.logs
+    assert "12.0 GB free after cleanup" in job.logs
+    # The first cleanup is the aggressive one; the one after the update is the gentle one.
+    assert prune_calls[0] == {"full": True}
+    assert prune_calls[1] == {}
+
+
+def test_update_job_refuses_to_start_when_disk_stays_full(client, monkeypatch):
+    from app.models import JobStatus, SiteStatus
+
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "lowdisk-bad", "site_type": "pl_cms"})
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("the rebuild started even though the disk is full")
+
+    job, site = _run_update_job(
+        monkeypatch,
+        "lowdisk-bad",
+        prune=lambda **k: ["Cleaned up build cache: reclaimed 0B"],
+        update=must_not_run,
+        free_disk=lambda path: 1.0,
+        dev_mode=False,
+    )
+
+    assert job.status == JobStatus.failed
+    assert "Not enough free disk space" in job.logs
+    assert "Nothing was changed" in job.logs
+    # The site was never touched, so it must not be flagged as broken.
+    assert site.status != SiteStatus.error
+
+
+def test_update_job_still_runs_when_disk_space_cannot_be_measured(client, monkeypatch):
+    from app.models import JobStatus
+
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "nomeasure", "site_type": "pl_cms"})
+
+    def cannot_measure(path):
+        raise OSError("no such path")
+
+    job, _ = _run_update_job(
+        monkeypatch, "nomeasure", prune=lambda **k: [], free_disk=cannot_measure, dev_mode=False
+    )
+
+    assert job.status == JobStatus.succeeded
+
+
+def test_disk_check_is_skipped_in_dev_mode(client, monkeypatch):
+    from app.models import JobStatus
+
+    _authenticated_client(client)
+    client.post("/sites", json={"name": "devskip", "site_type": "pl_cms"})
+
+    def must_not_measure(path):
+        raise AssertionError("disk was measured in dev mode")
+
+    job, _ = _run_update_job(
+        monkeypatch, "devskip", prune=lambda **k: [], free_disk=must_not_measure, dev_mode=True
+    )
+
+    assert job.status == JobStatus.succeeded

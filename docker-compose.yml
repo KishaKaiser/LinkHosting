@@ -173,6 +173,7 @@ services:
       ADMIN_SECRET_KEY:    ${ADMIN_SECRET_KEY:?ADMIN_SECRET_KEY must be set}
       DOMAIN_SUFFIX:       ${DOMAIN_SUFFIX:-local}
       REDIS_URL:           redis://redis:6379/0
+      MIN_FREE_DISK_GB:    ${MIN_FREE_DISK_GB:-5}
       DEV_MODE:            ${DEV_MODE:-false}
       DNS_ENABLED:         ${DNS_ENABLED:-true}
       HOST_LAN_IP:         ${HOST_LAN_IP:-}
