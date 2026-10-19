@@ -101,6 +101,9 @@ def test_provision_node_container_uses_keepalive_command(tmp_path, monkeypatch):
     assert kwargs.get("command") == ["tail", "-f", "/dev/null"], (
         "Node.js container must use a keep-alive command to prevent restart loops"
     )
+    assert kwargs.get("log_config") == {"Type": "json-file", "Config": {"max-size": "10m", "max-file": "3"}}, (
+        "site containers must have their logs capped"
+    )
 
 
 def test_provision_node_container_uses_configured_deploy_command(tmp_path, monkeypatch):

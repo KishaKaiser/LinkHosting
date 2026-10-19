@@ -54,6 +54,13 @@ def test_generate_wordpress_compose_prod_mode(tmp_path, monkeypatch):
     assert str(php_ini_file) in content
     assert "/usr/local/etc/php/conf.d/zz-linkhosting-runtime.ini:ro" in content
 
+    # Every container's logs are capped so they cannot fill the disk.
+    import yaml
+    services = yaml.safe_load(content)["services"]
+    assert len(services) == 2
+    for name, service in services.items():
+        assert service["logging"] == {"driver": "json-file", "options": {"max-size": "10m", "max-file": "3"}}, name
+
     secrets_file = tmp_path / "mysite" / ".secrets"
     assert secrets_file.exists()
     assert oct(secrets_file.stat().st_mode)[-3:] == "600"

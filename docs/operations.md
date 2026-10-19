@@ -211,6 +211,22 @@ This issues a cert signed by the internal CA and configures HTTPS on the proxy.
 sftp -P 2222 sftp-mysite@<host-ip>
 ```
 
+### Container logs are capped
+
+Docker keeps every log line for as long as a container exists, so an unlimited log slowly fills the disk. Every
+container is limited to 3 files of 10 MB (30 MB, oldest lines dropped first): the LinkHosting stack via
+`docker-compose.yml`, and the containers the panel creates for sites (PL_CMS, WordPress and other site types) via
+`control-plane/app/services/log_limits.py`.
+
+A limit only applies to a container when it is created. Containers that already exist keep their old, unlimited
+logs until they are recreated: run **Update PL_CMS** (or redeploy the site) and the new limit is applied.
+
+To see how much space container logs use right now:
+
+```bash
+sudo sh -c 'du -ch /var/lib/docker/containers/*/*-json.log | sort -h | tail -8'
+```
+
 ---
 
 ## Development Mode
