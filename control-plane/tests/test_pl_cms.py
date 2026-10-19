@@ -67,6 +67,13 @@ def test_generate_pl_cms_compose_prod_mode(tmp_path, monkeypatch):
     assert "plcms-media-data:/app/storage/media" in content
     assert "plcms-media-data:" in content
 
+    # Every container's logs are capped so they cannot fill the disk.
+    import yaml
+    services = yaml.safe_load(content)["services"]
+    assert set(services) == {"web", "api", "postgres", "redis"}
+    for name, service in services.items():
+        assert service["logging"] == {"driver": "json-file", "options": {"max-size": "10m", "max-file": "3"}}, name
+
     assert config["dockerfiles"]["web"].exists()
     assert config["dockerfiles"]["api"].exists()
     assert "FROM node:22-bullseye" in config["dockerfiles"]["web"].read_text()

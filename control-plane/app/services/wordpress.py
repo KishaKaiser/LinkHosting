@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from app.config import settings
+from app.services.log_limits import compose_logging
 
 log = logging.getLogger(__name__)
 _RESERVED_WORDPRESS_ENV = frozenset(
@@ -325,6 +326,10 @@ def generate_wordpress_compose(
             "proxy": {"external": True, "name": "linkhosting_proxy"},
         },
     }
+
+    # Cap each container's logs so they cannot slowly fill the disk.
+    for service in compose_data["services"].values():
+        service["logging"] = compose_logging()
 
     compose_yaml = yaml.dump(compose_data, default_flow_style=False, sort_keys=False)
 

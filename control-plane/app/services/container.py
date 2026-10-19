@@ -9,6 +9,7 @@ from typing import Optional
 
 from app.config import settings
 from app.models import Site, SiteStatus, SiteType
+from app.services.log_limits import docker_log_config
 
 log = logging.getLogger(__name__)
 
@@ -171,6 +172,7 @@ def provision_container(site: Site) -> str:
         environment=env,
         volumes=volumes,
         labels=labels,
+        log_config=docker_log_config(),
         command=_container_command(site, env),
     )
     log.info("Started container %s for site %s", container.id[:12], site.name)
